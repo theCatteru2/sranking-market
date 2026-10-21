@@ -66,6 +66,12 @@ const userStarsAmount = document.getElementById("user-stars-amount");
 const portfolioBtn = document.getElementById("portfolio-btn");
 const settingsBtn = document.getElementById("settings-btn");
 
+const adminResolveMarketBtn = document.getElementById("admin-resolve-market-btn");
+const resolveModal = document.getElementById("resolve-modal");
+const resolveOptionsList = document.getElementById("resolve-options-list");
+const marketResolvedBanner = document.getElementById("market-resolved-banner");
+const resolvedWinnerText = document.getElementById("resolved-winner-text");
+
 // Order Slip
 const slipTargetImg = document.getElementById("slip-target-img");
 const slipTargetName = document.getElementById("slip-target-name");
@@ -151,6 +157,9 @@ async function loadOrCreateUserProfile(user) {
     userData = { email: user.email, stars: 5000, positions: [] };
     await setDoc(userRef, userData);
   }
+  
+  // Procesar cobros de mercados ya finalizados
+  processResolvedMarketPayouts();
   updateUI();
 }
 
@@ -162,7 +171,7 @@ function updateUI() {
 }
 
 // ====================================================
-// 3. GENERADOR DE HISTORIAL BASE (SEMILLA INICIAL)
+// 3. GENERADOR DE HISTORIAL BASE
 // ====================================================
 function createInitialHistorySnapshots(options) {
   const now = Date.now();
@@ -191,7 +200,7 @@ function createInitialHistorySnapshots(options) {
 }
 
 // ====================================================
-// 4. LECTURA EN TIEMPO REAL Y MIGRACIÓN AUTOMÁTICA
+// 4. LECTURA EN TIEMPO REAL
 // ====================================================
 onSnapshot(collection(db, "markets"), async (snapshot) => {
   allMarkets.clear();
@@ -200,7 +209,6 @@ onSnapshot(collection(db, "markets"), async (snapshot) => {
     const data = docSnap.data();
     const id = docSnap.id;
 
-    // Retrocompatibilidad: Si el mercado no tiene historial guardado, se le genera uno y se persiste
     if (!data.history || !Array.isArray(data.history) || data.history.length === 0) {
       data.history = createInitialHistorySnapshots(data.options);
       await updateDoc(doc(db, "markets", id), { history: data.history });
@@ -211,6 +219,10 @@ onSnapshot(collection(db, "markets"), async (snapshot) => {
 
   marketsCountBadge.textContent = `${allMarkets.size} mercado${allMarkets.size === 1 ? '' : 's'}`;
   renderCatalogGrid();
+
+  if (currentUser) {
+    processResolvedMarketPayouts();
+  }
 
   if (currentMarketId && allMarkets.has(currentMarketId)) {
     currentMarket = allMarkets.get(currentMarketId);
@@ -244,6 +256,8 @@ function renderCatalogGrid() {
       `;
     });
 
+    const isResolved = marketData.resolved === true;
+
     const card = document.createElement("div");
     card.className = "catalog-card";
     card.innerHTML = `
@@ -256,7 +270,9 @@ function renderCatalogGrid() {
       </div>
       <div class="card-bottom-meta">
         <span>⭐ ${Number(marketData.volume || 1845000).toLocaleString()} Vol.</span>
-        <span>${marketData.marketType === 'binary' ? 'Binario (Sí/No)' : `${sorted.length} opciones`}</span>
+        <span style="color:${isResolved ? 'var(--poly-green)' : 'inherit'}; font-weight:${isResolved ? '700' : 'normal'}">
+          ${isResolved ? 'FINALIZADO' : (marketData.marketType === 'binary' ? 'Binario' : `${sorted.length} opciones`)}
+        </span>
       </div>
     `;
 
@@ -270,6 +286,24 @@ function renderCatalogGrid() {
 // ====================================================
 function renderMarketView() {
   if (!currentMarket || !currentMarket.options) return;
+
+  const isResolved = currentMarket.resolved === true;
+
+  // Manejo del banner de resolución
+  if (isResolved) {
+    marketResolvedBanner.classList.remove("hidden");
+    const winner = currentMarket.options.find(o => o.id === currentMarket.winningOptionId);
+    resolvedWinnerText.textContent = `Resultado: ${winner ? winner.name : 'Cerrado'}`;
+  } else {
+    marketResolvedBanner.classList.add("hidden");
+  }
+
+  // Botón de finalizar (Solo Administrador y si no está finalizado)
+  if (currentUser && currentUser.email === ADMIN_EMAIL && !isResolved) {
+    adminResolveMarketBtn.classList.remove("hidden");
+  } else {
+    adminResolveMarketBtn.classList.add("hidden");
+  }
 
   document.getElementById("display-market-title").textContent = currentMarket.title;
   document.getElementById("display-market-vol").textContent = `⭐ ${Number(currentMarket.volume || 1845000).toLocaleString()} Vol.`;
@@ -301,25 +335,27 @@ function renderMarketView() {
       </td>
       <td>
         <div class="table-buttons-cell">
-          <button class="tbl-btn-yes" data-id="${opt.id}">Buy Yes ${opt.probability}¢</button>
-          <button class="tbl-btn-no" data-id="${opt.id}">Buy No ${100 - opt.probability}¢</button>
+          <button class="tbl-btn-yes" data-id="${opt.id}" ${isResolved ? 'disabled style="opacity:0.4; cursor:not-allowed;"' : ''}>Buy Yes ${opt.probability}¢</button>
+          <button class="tbl-btn-no" data-id="${opt.id}" ${isResolved ? 'disabled style="opacity:0.4; cursor:not-allowed;"' : ''}>Buy No ${100 - opt.probability}¢</button>
         </div>
       </td>
     `;
 
-    tr.querySelector(".tbl-btn-yes").addEventListener("click", () => {
-      selectedOption = opt;
-      selectedOutcome = "YES";
-      updateSlipView();
-      if (chartConfig.viewMode === "focus") renderSvgChart();
-    });
+    if (!isResolved) {
+      tr.querySelector(".tbl-btn-yes").addEventListener("click", () => {
+        selectedOption = opt;
+        selectedOutcome = "YES";
+        updateSlipView();
+        if (chartConfig.viewMode === "focus") renderSvgChart();
+      });
 
-    tr.querySelector(".tbl-btn-no").addEventListener("click", () => {
-      selectedOption = opt;
-      selectedOutcome = "NO";
-      updateSlipView();
-      if (chartConfig.viewMode === "focus") renderSvgChart();
-    });
+      tr.querySelector(".tbl-btn-no").addEventListener("click", () => {
+        selectedOption = opt;
+        selectedOutcome = "NO";
+        updateSlipView();
+        if (chartConfig.viewMode === "focus") renderSvgChart();
+      });
+    }
 
     tbody.appendChild(tr);
   });
@@ -330,7 +366,98 @@ function renderMarketView() {
 }
 
 // ====================================================
-// 6. MOTOR DEL GRÁFICO BASADO EN HISTORIAL PERSISTIDO
+// 6. FINALIZAR MERCADO (ADMIN) Y PAGO AUTOMÁTICO
+// ====================================================
+adminResolveMarketBtn.addEventListener("click", () => {
+  if (!currentMarket) return;
+  resolveOptionsList.innerHTML = "";
+
+  currentMarket.options.forEach(opt => {
+    const row = document.createElement("div");
+    row.className = "resolve-item-row";
+    row.innerHTML = `
+      <div style="display:flex; align-items:center; gap:10px;">
+        <img src="${opt.imageUrl || ''}">
+        <div>
+          <strong>${opt.name}</strong>
+          <span style="display:block; font-size:0.75rem; color:var(--poly-text-muted);">${opt.subtitle || ''}</span>
+        </div>
+      </div>
+      <button class="btn-primary-blue" data-win="${opt.id}">Declarar Ganador</button>
+    `;
+
+    row.querySelector("button").addEventListener("click", async () => {
+      if (!confirm(`¿Confirmas que "${opt.name}" es la opción ganadora? Esto finalizará el mercado de forma irreversible.`)) return;
+
+      // Actualizar opciones para reflejar resultado 100% / 0%
+      const finalOptions = currentMarket.options.map(o => ({
+        ...o,
+        probability: o.id === opt.id ? 100 : 0
+      }));
+
+      // Registrar punto final en el historial
+      const finalValues = {};
+      finalOptions.forEach(o => finalValues[o.id] = o.probability);
+      const updatedHistory = [...(currentMarket.history || [])];
+      updatedHistory.push({
+        timestamp: Date.now(),
+        values: finalValues
+      });
+
+      await updateDoc(doc(db, "markets", currentMarketId), {
+        resolved: true,
+        winningOptionId: opt.id,
+        options: finalOptions,
+        history: updatedHistory
+      });
+
+      resolveModal.classList.add("hidden");
+    });
+
+    resolveOptionsList.appendChild(row);
+  });
+
+  resolveModal.classList.remove("hidden");
+});
+
+// Acreditar pagos a usuarios con acciones ganadoras
+async function processResolvedMarketPayouts() {
+  if (!currentUser || !userData.positions || userData.positions.length === 0) return;
+
+  let totalPayout = 0;
+  let modified = false;
+
+  const remainingPositions = [];
+
+  for (const pos of userData.positions) {
+    const market = allMarkets.get(pos.marketId);
+    if (market && market.resolved === true) {
+      modified = true;
+      const isWinner = (pos.outcome === "YES" && pos.optionId === market.winningOptionId) ||
+                       (pos.outcome === "NO" && pos.optionId !== market.winningOptionId);
+
+      if (isWinner) {
+        const payout = pos.shares * 100;
+        totalPayout += payout;
+      }
+    } else {
+      remainingPositions.push(pos);
+    }
+  }
+
+  if (modified) {
+    userData.stars += totalPayout;
+    userData.positions = remainingPositions;
+    await setDoc(doc(db, "users", currentUser.uid), userData);
+    updateUI();
+    if (totalPayout > 0) {
+      alert(`¡Has ganado ⭐ ${totalPayout.toLocaleString()} por tus posiciones en mercados finalizados!`);
+    }
+  }
+}
+
+// ====================================================
+// 7. MOTOR DEL GRÁFICO
 // ====================================================
 document.getElementById("view-mode-multi")?.addEventListener("click", (e) => {
   chartConfig.viewMode = "multi";
@@ -380,15 +507,9 @@ function prepareChartDataFromHistory() {
     default:   cutoff = 0; break;
   }
 
-  // Filtrar registros que caigan dentro del intervalo
   let filteredHistory = currentMarket.history.filter(pt => pt.timestamp >= cutoff);
+  if (filteredHistory.length < 2) filteredHistory = currentMarket.history.slice(-2);
 
-  // Asegurar al menos 2 puntos para el trazado
-  if (filteredHistory.length < 2) {
-    filteredHistory = currentMarket.history.slice(-2);
-  }
-
-  // Generar etiquetas legibles según la estampa de tiempo real
   activeTimeLabels = filteredHistory.map(pt => {
     const d = new Date(pt.timestamp);
     if (chartConfig.timeframe === "1D") {
@@ -587,10 +708,12 @@ function setupChartCrosshair(svg, seriesList, mapX) {
 }
 
 // ====================================================
-// 7. ORDER SLIP (REGISTRO DINÁMICO EN EL HISTORIAL)
+// 8. ORDER SLIP (COMPRA)
 // ====================================================
 function updateSlipView() {
   if (!selectedOption) return;
+
+  const isResolved = currentMarket && currentMarket.resolved === true;
 
   slipTargetImg.src = selectedOption.imageUrl || "";
   slipTargetName.textContent = selectedOption.name;
@@ -601,6 +724,13 @@ function updateSlipView() {
 
   slipBtnYes.className = `slip-outcome-btn ${selectedOutcome === "YES" ? "active-yes" : ""}`;
   slipBtnNo.className = `slip-outcome-btn ${selectedOutcome === "NO" ? "active-no" : ""}`;
+
+  if (isResolved) {
+    executeTradeBtn.disabled = true;
+    executeTradeBtn.style.opacity = "0.4";
+    executeTradeBtn.textContent = "Mercado Finalizado";
+    return;
+  }
 
   recalculateSlip();
 }
@@ -622,7 +752,7 @@ document.getElementById("quick-max-btn").addEventListener("click", () => {
 });
 
 function recalculateSlip() {
-  if (!selectedOption) return;
+  if (!selectedOption || (currentMarket && currentMarket.resolved)) return;
   const price = selectedOutcome === "YES" ? selectedOption.probability : (100 - selectedOption.probability);
   const amount = Math.max(1, parseInt(tradeAmountInput.value) || 0);
 
@@ -643,6 +773,8 @@ function recalculateSlip() {
 
 executeTradeBtn.addEventListener("click", async () => {
   if (!currentUser) return alert("Inicia sesión con Google para operar.");
+  if (currentMarket && currentMarket.resolved) return alert("Este mercado ya ha finalizado.");
+
   const amount = parseInt(tradeAmountInput.value) || 0;
   if (amount <= 0 || amount > userData.stars) return;
 
@@ -651,17 +783,20 @@ executeTradeBtn.addEventListener("click", async () => {
 
   userData.stars -= amount;
   userData.positions.push({
+    marketId: currentMarketId,
+    marketTitle: currentMarket.title,
+    optionId: selectedOption.id,
     optionName: selectedOption.name,
     outcome: selectedOutcome,
     invested: amount,
-    shares: shares
+    shares: shares,
+    buyPrice: price
   });
 
   const optIdx = currentMarket.options.findIndex(o => o.id === selectedOption.id);
   const delta = selectedOutcome === "YES" ? 2 : -2;
   applyProbabilityShift(currentMarket.options, optIdx, delta);
 
-  // Registro del nuevo punto histórico en tiempo real
   const newSnapshotValues = {};
   currentMarket.options.forEach(o => {
     newSnapshotValues[o.id] = o.probability;
@@ -673,7 +808,6 @@ executeTradeBtn.addEventListener("click", async () => {
     values: newSnapshotValues
   });
 
-  // Limitar longitud máxima del historial para optimizar el documento (últimos 300 puntos)
   if (currentMarket.history.length > 300) {
     currentMarket.history = currentMarket.history.slice(-300);
   }
@@ -711,7 +845,7 @@ function applyProbabilityShift(options, targetIdx, delta) {
 }
 
 // ====================================================
-// 8. PORTAFOLIO Y CONFIGURACIÓN
+// 9. PORTAFOLIO Y VENTA DIRECTA DE ACCIONES
 // ====================================================
 portfolioBtn.addEventListener("click", () => {
   renderPortfolio();
@@ -735,29 +869,119 @@ document.getElementById("confirm-reset-btn").addEventListener("click", async () 
 function renderPortfolio() {
   const tbody = document.getElementById("portfolio-items-body");
   tbody.innerHTML = "";
-  let total = 0;
-  userData.positions.forEach(pos => {
-    total += pos.invested;
-    const tr = document.createElement("tr");
-    tr.innerHTML = `
-      <td><strong>${pos.optionName}</strong></td>
-      <td><span style="color:${pos.outcome === 'YES' ? 'var(--poly-green)' : 'var(--poly-red)'}; font-weight:700;">${pos.outcome}</span></td>
-      <td>⭐ ${pos.invested.toLocaleString()} (${pos.shares} acciones)</td>
-    `;
-    tbody.appendChild(tr);
-  });
-  document.getElementById("stat-portfolio-value").textContent = `⭐ ${total.toLocaleString()}`;
-  document.getElementById("stat-net-worth").textContent = `⭐ ${(userData.stars + total).toLocaleString()}`;
+  let totalEquity = 0;
+
+  if (!userData.positions || userData.positions.length === 0) {
+    tbody.innerHTML = `<tr><td colspan="6" style="text-align:center; color:var(--poly-text-muted); padding:20px;">No posees acciones activas en este momento.</td></tr>`;
+  } else {
+    userData.positions.forEach((pos, idx) => {
+      const market = allMarkets.get(pos.marketId);
+      let currentPrice = pos.buyPrice || 50;
+
+      if (market && market.options) {
+        const opt = market.options.find(o => o.id === pos.optionId);
+        if (opt) {
+          currentPrice = pos.outcome === "YES" ? opt.probability : (100 - opt.probability);
+        }
+      }
+
+      const totalVal = Math.round(pos.shares * (currentPrice / 100) * 100);
+      const initialVal = pos.invested;
+      const pnl = totalVal - initialVal;
+      const pnlPercent = initialVal > 0 ? ((pnl / initialVal) * 100).toFixed(1) : 0;
+      totalEquity += totalVal;
+
+      const isMarketResolved = market && market.resolved === true;
+
+      const tr = document.createElement("tr");
+      tr.innerHTML = `
+        <td>
+          <strong>${pos.optionName}</strong>
+          <span style="display:block; font-size:0.7rem; color:var(--poly-text-muted);">${pos.marketTitle || 'Mercado'}</span>
+        </td>
+        <td>
+          <span style="color:${pos.outcome === 'YES' ? 'var(--poly-green)' : 'var(--poly-red)'}; font-weight:700;">
+            ${pos.outcome}
+          </span>
+        </td>
+        <td>${pos.shares.toLocaleString()}</td>
+        <td><strong>⭐ ${totalVal.toLocaleString()}</strong></td>
+        <td style="color:${pnl >= 0 ? 'var(--poly-green)' : 'var(--poly-red)'};">
+          ${pnl >= 0 ? '+' : ''}${pnl} ⭐ (${pnlPercent}%)
+        </td>
+        <td>
+          <button class="btn-sell" data-sell="${idx}" ${isMarketResolved ? 'disabled style="opacity:0.4; cursor:not-allowed;"' : ''}>
+            ${isMarketResolved ? 'Finalizado' : 'Vender'}
+          </button>
+        </td>
+      `;
+
+      if (!isMarketResolved) {
+        tr.querySelector(".btn-sell").addEventListener("click", () => sellPosition(idx));
+      }
+
+      tbody.appendChild(tr);
+    });
+  }
+
+  document.getElementById("stat-portfolio-value").textContent = `⭐ ${totalEquity.toLocaleString()}`;
+  document.getElementById("stat-net-worth").textContent = `⭐ ${(userData.stars + totalEquity).toLocaleString()}`;
 }
 
+async function sellPosition(index) {
+  const pos = userData.positions[index];
+  if (!pos || !currentUser) return;
+
+  const market = allMarkets.get(pos.marketId);
+  let spotPrice = pos.buyPrice || 50;
+
+  if (market) {
+    const opt = market.options.find(o => o.id === pos.optionId);
+    if (opt) {
+      spotPrice = pos.outcome === "YES" ? opt.probability : (100 - opt.probability);
+      
+      // Aplicar desplazamiento inverso en la probabilidad al vender
+      const optIdx = market.options.findIndex(o => o.id === pos.optionId);
+      const delta = pos.outcome === "YES" ? -2 : 2;
+      applyProbabilityShift(market.options, optIdx, delta);
+
+      // Registrar punto en historial
+      const newSnapshotValues = {};
+      market.options.forEach(o => newSnapshotValues[o.id] = o.probability);
+      if (!market.history) market.history = [];
+      market.history.push({ timestamp: Date.now(), values: newSnapshotValues });
+
+      await updateDoc(doc(db, "markets", pos.marketId), {
+        options: market.options,
+        history: market.history
+      });
+    }
+  }
+
+  const payout = Math.round(pos.shares * (spotPrice / 100) * 100);
+  userData.stars += payout;
+  userData.positions.splice(index, 1);
+
+  await setDoc(doc(db, "users", currentUser.uid), userData);
+  updateUI();
+  renderPortfolio();
+  alert(`Has vendido tus acciones por ⭐ ${payout.toLocaleString()}`);
+}
+
+// Cierre unificado de modales
 document.querySelectorAll(".close-modal-btn").forEach(btn => {
-  btn.addEventListener("click", () => {
-    document.querySelectorAll(".modal-overlay").forEach(m => m.classList.add("hidden"));
+  btn.addEventListener("click", (e) => {
+    const target = e.currentTarget.getAttribute("data-target");
+    if (target) {
+      document.getElementById(target).classList.add("hidden");
+    } else {
+      btn.closest(".modal-overlay, .editor-modal-overlay").classList.add("hidden");
+    }
   });
 });
 
 // ====================================================
-// 9. SPOTIFY Y MODO EDITOR (CON HISTORIAL INICIAL)
+// 10. SPOTIFY Y MODO EDITOR
 // ====================================================
 adminEditorBtn.addEventListener("click", () => editorSection.classList.remove("hidden"));
 closeEditorBtn.addEventListener("click", () => editorSection.classList.add("hidden"));
@@ -850,6 +1074,7 @@ confirmPublishBinaryBtn.addEventListener("click", async () => {
     mainCover: binarySelectedTrack.imageUrl,
     volume: 1845000,
     history: initialHistory,
+    resolved: false,
     createdAt: Date.now()
   });
 
@@ -1008,7 +1233,7 @@ function renderEditorStaged() {
       </div>
       <div>
         <input type="number" class="builder-prob-input" value="${opt.probability}" data-idx="${idx}">%
-        <button class="btn-icon" data-del="${idx}">✕</button>
+        <button class="btn-icon close-modal-btn" data-del="${idx}" style="width:24px;height:24px;font-size:0.8rem;">✕</button>
       </div>
     `;
     row.querySelector("input").addEventListener("input", (e) => {
@@ -1057,6 +1282,7 @@ document.getElementById("confirm-publish-btn").addEventListener("click", async (
     marketType: "multiple",
     volume: 1845000,
     history: initialHistory,
+    resolved: false,
     createdAt: Date.now()
   });
 
