@@ -2,7 +2,6 @@ import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebas
 import { getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
 import { getFirestore, collection, doc, setDoc, getDoc, onSnapshot, updateDoc } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
 
-// 1. CONFIGURACIÓN
 const firebaseConfig = {
   apiKey: "AIzaSyDvm4QUpWVEhigb3xtckbPoCmYt5tdk8uA",
   authDomain: "ranking-a703b.firebaseapp.com",
@@ -15,25 +14,22 @@ const firebaseConfig = {
 const ADMIN_EMAIL = "tizianomferro@gmail.com"; 
 const SPOTIFY_CLIENT_ID = "9b28d325cf6b49f6b389b6808ca1b7f0";
 const REDIRECT_URI = window.location.origin + window.location.pathname;
-const PALETTE = ["#00c076", "#3b82f6", "#f59e0b", "#ec4899", "#8b5cf6", "#06b6d4", "#a855f7"];
+const PALETTE = ["#00c076", "#3b82f6", "#f59e0b", "#ec4899", "#8b5cf6", "#06b6d4"];
 
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const googleProvider = new GoogleAuthProvider();
 const db = getFirestore(app);
 
-// Estado Global
 let currentUser = null;
 let userData = { stars: 5000, positions: [] };
 let currentMarket = null;
 let currentMarketId = null;
 let selectedOption = null;
-let selectedOutcome = "YES"; // "YES" o "NO"
+let selectedOutcome = "YES";
 let currentStagedOptions = [];
 let spotifyToken = sessionStorage.getItem("spotify_access_token") || null;
-let chartInstance = null;
 
-// Elementos del DOM
 const googleLoginBtn = document.getElementById("google-login-btn");
 const logoutBtn = document.getElementById("logout-btn");
 const adminEditorBtn = document.getElementById("admin-editor-btn");
@@ -44,7 +40,6 @@ const userStarsAmount = document.getElementById("user-stars-amount");
 const portfolioBtn = document.getElementById("portfolio-btn");
 const settingsBtn = document.getElementById("settings-btn");
 
-// Slip de Compra
 const slipTargetImg = document.getElementById("slip-target-img");
 const slipTargetName = document.getElementById("slip-target-name");
 const slipTargetSub = document.getElementById("slip-target-sub");
@@ -58,9 +53,7 @@ const slipToWinAmount = document.getElementById("slip-to-win-amount");
 const slipAvgPriceDisplay = document.getElementById("slip-avg-price-display");
 const executeTradeBtn = document.getElementById("execute-trade-btn");
 
-// ====================================================
-// 2. INICIALIZACIÓN Y AUTH
-// ====================================================
+// AUTH
 googleLoginBtn.addEventListener("click", () => signInWithPopup(auth, googleProvider));
 logoutBtn.addEventListener("click", () => signOut(auth));
 
@@ -72,10 +65,7 @@ onAuthStateChanged(auth, async (user) => {
     userBalanceBadge.classList.remove("hidden");
     portfolioBtn.classList.remove("hidden");
     settingsBtn.classList.remove("hidden");
-
-    if (user.email === ADMIN_EMAIL) {
-      adminEditorBtn.classList.remove("hidden");
-    }
+    if (user.email === ADMIN_EMAIL) adminEditorBtn.classList.remove("hidden");
 
     await loadOrCreateUserProfile(user);
     await checkSpotifyRedirect();
@@ -117,13 +107,13 @@ function updateUI() {
   recalculateSlip();
 }
 
-// ====================================================
-// 3. RENDERIZADO DEL MERCADO EN TIEMPO REAL
-// ====================================================
+// LECTURA EN TIEMPO REAL
 onSnapshot(collection(db, "markets"), (snapshot) => {
-  if (snapshot.empty) return;
+  if (snapshot.empty) {
+    document.getElementById("display-market-title").textContent = "Sin mercados creados. Usa el Modo Editor para crear uno.";
+    return;
+  }
 
-  // Tomamos el primer mercado activo para la vista de detalle
   snapshot.forEach(docSnap => {
     currentMarketId = docSnap.id;
     currentMarket = docSnap.data();
@@ -133,21 +123,18 @@ onSnapshot(collection(db, "markets"), (snapshot) => {
 });
 
 function renderMarketView() {
-  if (!currentMarket) return;
+  if (!currentMarket || !currentMarket.options) return;
 
-  // Header del mercado
   document.getElementById("display-market-title").textContent = currentMarket.title;
   document.getElementById("display-market-vol").textContent = `⭐ ${Number(currentMarket.volume || 1845000).toLocaleString()} Vol.`;
   
   const sorted = [...currentMarket.options].sort((a, b) => b.probability - a.probability);
-  document.getElementById("market-main-img").src = sorted[0]?.imageUrl || "https://via.placeholder.com/56";
+  document.getElementById("market-main-img").src = sorted[0]?.imageUrl || "";
 
-  // Si no hay opción seleccionada en el slip, seleccionamos la #1
   if (!selectedOption || !sorted.some(o => o.id === selectedOption.id)) {
     selectedOption = sorted[0];
   }
 
-  // Tabla de Outcomes
   const tbody = document.getElementById("outcomes-tbody");
   tbody.innerHTML = "";
 
@@ -156,10 +143,10 @@ function renderMarketView() {
     tr.innerHTML = `
       <td>
         <div class="outcome-cell-info">
-          <img class="outcome-cell-img" src="${opt.imageUrl || 'https://via.placeholder.com/36'}" alt="${opt.name}">
+          <img class="outcome-cell-img" src="${opt.imageUrl || ''}" alt="${opt.name}">
           <div class="outcome-cell-names">
             <strong>${opt.name}</strong>
-            <span>${opt.subtitle || 'Spotify Artist/Track'}</span>
+            <span>${opt.subtitle || 'Spotify Track'}</span>
           </div>
         </div>
       </td>
@@ -190,115 +177,96 @@ function renderMarketView() {
   });
 
   updateSlipView();
-  renderChart(sorted);
+  renderSvgChart(sorted);
 }
 
-// ====================================================
-// 4. CHART ESTILO POLYMARKET (LÍNEAS MULTICOLOR)
-// ====================================================
-function renderChart(options) {
-  const ctx = document.getElementById("marketChart").getContext("2d");
+// GRÁFICO SVG NATIVO (Sin librerías externas)
+function renderSvgChart(options) {
+  const svg = document.getElementById("polySvgChart");
   const legendBox = document.getElementById("chart-legend-row");
   legendBox.innerHTML = "";
+  svg.innerHTML = "";
 
-  // Generación de timeline sintético para el gráfico
-  const labels = ["Oct 1", "Oct 5", "Oct 10", "Oct 15", "Oct 20", "Now"];
-  
-  const datasets = options.slice(0, 5).map((opt, i) => {
-    const color = PALETTE[i % PALETTE.length];
+  // Cuadrícula horizontal del gráfico
+  [20, 40, 60, 80].forEach(pct => {
+    const y = 240 - (pct / 100) * 220;
+    const line = document.createElementNS("http://www.w3.org/2000/svg", "line");
+    line.setAttribute("x1", "0");
+    line.setAttribute("y1", y);
+    line.setAttribute("x2", "800");
+    line.setAttribute("y2", y);
+    line.setAttribute("stroke", "rgba(255,255,255,0.05)");
+    line.setAttribute("stroke-dasharray", "4");
+    svg.appendChild(line);
+  });
 
-    // Leyenda superior
+  options.slice(0, 5).forEach((opt, idx) => {
+    const color = PALETTE[idx % PALETTE.length];
+
+    // Leyenda
     const legItem = document.createElement("div");
     legItem.className = "chart-legend-item";
     legItem.innerHTML = `<span class="legend-dot" style="background:${color}"></span> ${opt.name} <strong>${opt.probability}%</strong>`;
     legendBox.appendChild(legItem);
 
-    // Variaciones simuladas alrededor de su precio actual
+    // Trazado de línea simulada que llega a su probabilidad actual
     const base = opt.probability;
-    const history = [
-      Math.max(1, base - (5 - i * 2)),
-      Math.max(1, base + (i * 2 - 3)),
-      Math.max(1, base - 2),
-      Math.max(1, base + 3),
-      Math.max(1, base - 1),
-      base
+    const points = [
+      { x: 0,   y: Math.max(5, base - (4 - idx * 2)) },
+      { x: 160, y: Math.max(5, base + (idx * 2 - 2)) },
+      { x: 320, y: Math.max(5, base - 2) },
+      { x: 480, y: Math.max(5, base + 3) },
+      { x: 640, y: Math.max(5, base - 1) },
+      { x: 800, y: base }
     ];
 
-    return {
-      label: opt.name,
-      data: history,
-      borderColor: color,
-      backgroundColor: "transparent",
-      borderWidth: 2,
-      tension: 0.3,
-      pointRadius: (ctx) => ctx.dataIndex === history.length - 1 ? 4 : 0,
-      pointHoverRadius: 6
-    };
-  });
+    let d = "";
+    points.forEach((p, i) => {
+      const cy = 240 - (p.y / 100) * 220;
+      d += `${i === 0 ? "M" : "L"} ${p.x} ${cy} `;
+    });
 
-  if (chartInstance) chartInstance.destroy();
+    const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+    path.setAttribute("d", d);
+    path.setAttribute("fill", "none");
+    path.setAttribute("stroke", color);
+    path.setAttribute("stroke-width", "2.5");
+    svg.appendChild(path);
 
-  chartInstance = new Chart(ctx, {
-    type: "line",
-    data: { labels, datasets },
-    options: {
-      responsive: true,
-      maintainAspectRatio: false,
-      plugins: { legend: { display: false } },
-      scales: {
-        x: { grid: { color: "rgba(255,255,255,0.04)" }, ticks: { color: "#8292a8", font: { size: 10 } } },
-        y: { 
-          position: "right",
-          grid: { color: "rgba(255,255,255,0.04)" }, 
-          ticks: { color: "#8292a8", callback: (v) => `${v}%`, font: { size: 10 } },
-          min: 0, max: 100 
-        }
-      }
-    }
+    // Punto terminal
+    const endCircle = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+    endCircle.setAttribute("cx", "800");
+    endCircle.setAttribute("cy", 240 - (base / 100) * 220);
+    endCircle.setAttribute("r", "4");
+    endCircle.setAttribute("fill", color);
+    svg.appendChild(endCircle);
   });
 }
 
-// ====================================================
-// 5. ORDER SLIP INTERACTIVO (COLUMNA DERECHA)
-// ====================================================
+// SLIP DE TRADING
 function updateSlipView() {
   if (!selectedOption) return;
 
-  slipTargetImg.src = selectedOption.imageUrl || "https://via.placeholder.com/40";
+  slipTargetImg.src = selectedOption.imageUrl || "";
   slipTargetName.textContent = selectedOption.name;
   slipTargetSub.textContent = selectedOption.subtitle || "Spotify Outcome";
 
   slipYesPrice.textContent = `${selectedOption.probability}¢`;
   slipNoPrice.textContent = `${100 - selectedOption.probability}¢`;
 
-  if (selectedOutcome === "YES") {
-    slipBtnYes.className = "slip-outcome-btn active-yes";
-    slipBtnNo.className = "slip-outcome-btn";
-  } else {
-    slipBtnYes.className = "slip-outcome-btn";
-    slipBtnNo.className = "slip-outcome-btn active-no";
-  }
+  slipBtnYes.className = `slip-outcome-btn ${selectedOutcome === "YES" ? "active-yes" : ""}`;
+  slipBtnNo.className = `slip-outcome-btn ${selectedOutcome === "NO" ? "active-no" : ""}`;
 
   recalculateSlip();
 }
 
-slipBtnYes.addEventListener("click", () => {
-  selectedOutcome = "YES";
-  updateSlipView();
-});
-
-slipBtnNo.addEventListener("click", () => {
-  selectedOutcome = "NO";
-  updateSlipView();
-});
-
+slipBtnYes.addEventListener("click", () => { selectedOutcome = "YES"; updateSlipView(); });
+slipBtnNo.addEventListener("click", () => { selectedOutcome = "NO"; updateSlipView(); });
 tradeAmountInput.addEventListener("input", recalculateSlip);
 
 document.querySelectorAll(".quick-chip[data-add]").forEach(btn => {
   btn.addEventListener("click", () => {
-    const add = parseInt(btn.getAttribute("data-add"));
-    const cur = parseInt(tradeAmountInput.value) || 0;
-    tradeAmountInput.value = cur + add;
+    tradeAmountInput.value = (parseInt(tradeAmountInput.value) || 0) + parseInt(btn.getAttribute("data-add"));
     recalculateSlip();
   });
 });
@@ -310,22 +278,17 @@ document.getElementById("quick-max-btn").addEventListener("click", () => {
 
 function recalculateSlip() {
   if (!selectedOption) return;
-
   const price = selectedOutcome === "YES" ? selectedOption.probability : (100 - selectedOption.probability);
   const amount = Math.max(1, parseInt(tradeAmountInput.value) || 0);
-  
+
   slipAvgPriceDisplay.textContent = `${price}¢`;
-
-  // To win = (Monto invertido / Precio en decimal) -> cada acción paga 100 estrellas al resolver
-  const shares = amount / (price / 100);
-  const potentialWin = Math.round(shares);
-
+  const potentialWin = Math.round(amount / (price / 100));
   slipToWinAmount.textContent = `⭐ ${potentialWin.toLocaleString()}`;
 
   if (amount > userData.stars) {
     executeTradeBtn.disabled = true;
     executeTradeBtn.style.opacity = "0.5";
-    executeTradeBtn.textContent = "Insufficient Balance";
+    executeTradeBtn.textContent = "Balance Insuficiente";
   } else {
     executeTradeBtn.disabled = false;
     executeTradeBtn.style.opacity = "1";
@@ -333,7 +296,6 @@ function recalculateSlip() {
   }
 }
 
-// EJECUCIÓN DE LA ORDEN DE COMPRA
 executeTradeBtn.addEventListener("click", async () => {
   if (!currentUser) return alert("Inicia sesión con Google para operar.");
   const amount = parseInt(tradeAmountInput.value) || 0;
@@ -342,25 +304,18 @@ executeTradeBtn.addEventListener("click", async () => {
   const price = selectedOutcome === "YES" ? selectedOption.probability : (100 - selectedOption.probability);
   const shares = Math.round(amount / (price / 100));
 
-  // 1. Descontar saldo
   userData.stars -= amount;
-
-  // 2. Añadir a posiciones
   userData.positions.push({
-    optionId: selectedOption.id,
     optionName: selectedOption.name,
     outcome: selectedOutcome,
     invested: amount,
-    shares: shares,
-    buyPrice: price
+    shares: shares
   });
 
-  // 3. Desplazamiento dinámico en probabilidades del mercado (AMM)
   const optIdx = currentMarket.options.findIndex(o => o.id === selectedOption.id);
   const delta = selectedOutcome === "YES" ? 2 : -2;
   applyProbabilityShift(currentMarket.options, optIdx, delta);
 
-  // 4. Guardar en Firestore
   await setDoc(doc(db, "users", currentUser.uid), userData);
   await updateDoc(doc(db, "markets", currentMarketId), {
     options: currentMarket.options,
@@ -368,7 +323,6 @@ executeTradeBtn.addEventListener("click", async () => {
   });
 
   updateUI();
-  alert(`Orden completada: ${shares} acciones ${selectedOutcome} en ${selectedOption.name}`);
 });
 
 function applyProbabilityShift(options, targetIdx, delta) {
@@ -385,7 +339,6 @@ function applyProbabilityShift(options, targetIdx, delta) {
     }
   });
 
-  // Asegurar 100%
   const sum = options.reduce((s, o) => s + o.probability, 0);
   const adjust = 100 - sum;
   if (adjust !== 0) {
@@ -394,9 +347,7 @@ function applyProbabilityShift(options, targetIdx, delta) {
   }
 }
 
-// ====================================================
-// 6. PORTAFOLIO Y CONFIGURACIÓN
-// ====================================================
+// PORTAFOLIO Y RESET
 portfolioBtn.addEventListener("click", () => {
   renderPortfolio();
   document.getElementById("portfolio-modal").classList.remove("hidden");
@@ -413,32 +364,25 @@ document.getElementById("confirm-reset-btn").addEventListener("click", async () 
   await setDoc(doc(db, "users", currentUser.uid), userData);
   updateUI();
   document.getElementById("settings-modal").classList.add("hidden");
-  alert("Cuenta restablecida a 5,000 ⭐");
+  alert("Balance reiniciado a 5,000 ⭐");
 });
 
 function renderPortfolio() {
   const tbody = document.getElementById("portfolio-items-body");
   tbody.innerHTML = "";
-  let totalValue = 0;
-
-  if (userData.positions.length === 0) {
-    tbody.innerHTML = `<tr><td colspan="4" style="color:var(--poly-text-muted); text-align:center; padding:15px;">Sin posiciones abiertas.</td></tr>`;
-  } else {
-    userData.positions.forEach(pos => {
-      totalValue += pos.invested;
-      const tr = document.createElement("tr");
-      tr.innerHTML = `
-        <td><strong>${pos.optionName}</strong></td>
-        <td><span style="color:${pos.outcome === 'YES' ? 'var(--poly-green)' : 'var(--poly-red)'}; font-weight:700;">${pos.outcome}</span></td>
-        <td>⭐ ${pos.invested.toLocaleString()} (${pos.shares} acciones)</td>
-        <td>-</td>
-      `;
-      tbody.appendChild(tr);
-    });
-  }
-
-  document.getElementById("stat-portfolio-value").textContent = `⭐ ${totalValue.toLocaleString()}`;
-  document.getElementById("stat-net-worth").textContent = `⭐ ${(userData.stars + totalValue).toLocaleString()}`;
+  let total = 0;
+  userData.positions.forEach(pos => {
+    total += pos.invested;
+    const tr = document.createElement("tr");
+    tr.innerHTML = `
+      <td><strong>${pos.optionName}</strong></td>
+      <td><span style="color:${pos.outcome === 'YES' ? 'var(--poly-green)' : 'var(--poly-red)'}; font-weight:700;">${pos.outcome}</span></td>
+      <td>⭐ ${pos.invested.toLocaleString()} (${pos.shares} acciones)</td>
+    `;
+    tbody.appendChild(tr);
+  });
+  document.getElementById("stat-portfolio-value").textContent = `⭐ ${total.toLocaleString()}`;
+  document.getElementById("stat-net-worth").textContent = `⭐ ${(userData.stars + total).toLocaleString()}`;
 }
 
 document.querySelectorAll(".close-modal-btn").forEach(btn => {
@@ -447,13 +391,10 @@ document.querySelectorAll(".close-modal-btn").forEach(btn => {
   });
 });
 
-// ====================================================
-// 7. MODO EDITOR & SPOTIFY
-// ====================================================
+// SPOTIFY & EDITOR
 adminEditorBtn.addEventListener("click", () => editorSection.classList.remove("hidden"));
 closeEditorBtn.addEventListener("click", () => editorSection.classList.add("hidden"));
 
-// Flujo PKCE y Spotify
 function generateRandomString(len) {
   const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
   return Array.from({ length: len }, () => chars.charAt(Math.floor(Math.random() * chars.length))).join("");
@@ -550,7 +491,7 @@ function renderEditorResults(items) {
     div.className = "result-item";
     div.innerHTML = `
       <div style="display:flex;align-items:center;gap:8px;">
-        <img src="${item.imageUrl || 'https://via.placeholder.com/32'}">
+        <img src="${item.imageUrl || ''}">
         <div style="font-size:0.8rem;"><strong>${item.name}</strong><br><span style="color:#8292a8;">${item.subtitle}</span></div>
       </div>
       <button class="btn-primary-blue" style="padding:4px 8px;font-size:0.75rem;">+ Añadir</button>
