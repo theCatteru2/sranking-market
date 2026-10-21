@@ -30,6 +30,15 @@ let selectedOutcome = "YES";
 let currentStagedOptions = [];
 let spotifyToken = sessionStorage.getItem("spotify_access_token") || null;
 
+// Configuración y caché de series del gráfico
+let chartConfig = {
+  viewMode: "multi",
+  autoScale: true,
+  timeframe: "ALL"
+};
+let chartDataCache = [];
+let activeTimeLabels = [];
+
 const googleLoginBtn = document.getElementById("google-login-btn");
 const logoutBtn = document.getElementById("logout-btn");
 const adminEditorBtn = document.getElementById("admin-editor-btn");
@@ -165,85 +174,284 @@ function renderMarketView() {
       selectedOption = opt;
       selectedOutcome = "YES";
       updateSlipView();
+      if (chartConfig.viewMode === "focus") renderSvgChart();
     });
 
     tr.querySelector(".tbl-btn-no").addEventListener("click", () => {
       selectedOption = opt;
       selectedOutcome = "NO";
       updateSlipView();
+      if (chartConfig.viewMode === "focus") renderSvgChart();
     });
 
     tbody.appendChild(tr);
   });
 
   updateSlipView();
-  renderSvgChart(sorted);
+  generateHistoricalSeries();
+  renderSvgChart();
 }
 
-// GRÁFICO SVG NATIVO (Sin librerías externas)
-function renderSvgChart(options) {
+// ====================================================
+// GENERACIÓN DE DATOS TEMPORALES Y CONTROLES DEL GRÁFICO
+// ====================================================
+document.getElementById("view-mode-multi")?.addEventListener("click", (e) => {
+  chartConfig.viewMode = "multi";
+  updateViewModeButtons(e.target);
+  renderSvgChart();
+});
+
+document.getElementById("view-mode-focus")?.addEventListener("click", (e) => {
+  chartConfig.viewMode = "focus";
+  updateViewModeButtons(e.target);
+  renderSvgChart();
+});
+
+document.getElementById("toggle-autoscale-btn")?.addEventListener("click", (e) => {
+  chartConfig.autoScale = !chartConfig.autoScale;
+  e.target.textContent = chartConfig.autoScale ? "🔍 Auto-Zoom: ON" : "🔍 Auto-Zoom: OFF";
+  e.target.classList.toggle("active", chartConfig.autoScale);
+  renderSvgChart();
+});
+
+document.querySelectorAll(".time-btn").forEach(btn => {
+  btn.addEventListener("click", (e) => {
+    document.querySelectorAll(".time-btn").forEach(b => b.classList.remove("active"));
+    e.target.classList.add("active");
+    chartConfig.timeframe = e.target.getAttribute("data-time");
+    generateHistoricalSeries();
+    renderSvgChart();
+  });
+});
+
+function updateViewModeButtons(activeBtn) {
+  document.querySelectorAll(".chart-view-modes .tool-btn").forEach(b => b.classList.remove("active"));
+  activeBtn.classList.add("active");
+}
+
+function generateHistoricalSeries() {
+  if (!currentMarket || !currentMarket.options) return;
+
+  const sorted = [...currentMarket.options].sort((a, b) => b.probability - a.probability);
+  let stepCount = 8;
+  
+  switch(chartConfig.timeframe) {
+    case "1D":
+      activeTimeLabels = ["00:00", "04:00", "08:00", "12:00", "16:00", "20:00", "Now"];
+      stepCount = 7;
+      break;
+    case "1W":
+      activeTimeLabels = ["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Hoy"];
+      stepCount = 7;
+      break;
+    case "1M":
+      activeTimeLabels = ["Sem 1", "Sem 2", "Sem 3", "Sem 4", "Hoy"];
+      stepCount = 5;
+      break;
+    case "ALL":
+    default:
+      activeTimeLabels = ["Jul", "Ago", "Sep", "Oct 5", "Oct 12", "Oct 18", "Now"];
+      stepCount = 7;
+      break;
+  }
+
+  chartDataCache = sorted.map((opt, idx) => {
+    const currentProb = opt.probability;
+    const history = [];
+    for (let i = 0; i < stepCount - 1; i++) {
+      const volatility = (stepCount - 1 - i) * 1.5;
+      const wave = Math.sin((i + idx * 2) * 1.2) * volatility;
+      history.push(Math.max(1, Math.min(99, Math.round(currentProb + wave))));
+    }
+    history.push(currentProb);
+
+    return {
+      ...opt,
+      color: PALETTE[idx % PALETTE.length],
+      series: history
+    };
+  });
+}
+
+function renderSvgChart() {
+  if (chartDataCache.length === 0) generateHistoricalSeries();
+
   const svg = document.getElementById("polySvgChart");
   const legendBox = document.getElementById("chart-legend-row");
+  if (!svg) return;
+
   legendBox.innerHTML = "";
   svg.innerHTML = "";
 
-  // Cuadrícula horizontal del gráfico
-  [20, 40, 60, 80].forEach(pct => {
-    const y = 240 - (pct / 100) * 220;
+  const width = 800;
+  const height = 240;
+  const paddingX = 20;
+
+  let visibleSeries = chartDataCache;
+  if (chartConfig.viewMode === "focus") {
+    const focused = chartDataCache.find(o => o.id === selectedOption?.id) || chartDataCache[0];
+    visibleSeries = [focused];
+  }
+
+  let minY = 0;
+  let maxY = 100;
+
+  if (chartConfig.autoScale) {
+    let allPoints = [];
+    visibleSeries.forEach(s => allPoints.push(...s.series));
+    const rawMin = Math.min(...allPoints);
+    const rawMax = Math.max(...allPoints);
+
+    minY = Math.max(0, rawMin - 4);
+    maxY = Math.min(100, rawMax + 4);
+    if (maxY - minY < 6) {
+      maxY = Math.min(100, maxY + 3);
+      minY = Math.max(0, minY - 3);
+    }
+  }
+
+  const mapX = (idx, total) => paddingX + (idx / (total - 1)) * (width - paddingX * 2);
+  const mapY = (val) => height - ((val - minY) / (maxY - minY)) * height;
+
+  // Rejilla y etiquetas en el eje Y
+  const gridSteps = 4;
+  for (let i = 0; i <= gridSteps; i++) {
+    const val = Math.round(minY + (i / gridSteps) * (maxY - minY));
+    const yPos = mapY(val);
+
     const line = document.createElementNS("http://www.w3.org/2000/svg", "line");
     line.setAttribute("x1", "0");
-    line.setAttribute("y1", y);
-    line.setAttribute("x2", "800");
-    line.setAttribute("y2", y);
-    line.setAttribute("stroke", "rgba(255,255,255,0.05)");
+    line.setAttribute("y1", yPos.toString());
+    line.setAttribute("x2", width.toString());
+    line.setAttribute("y2", yPos.toString());
+    line.setAttribute("stroke", "rgba(255,255,255,0.06)");
     line.setAttribute("stroke-dasharray", "4");
     svg.appendChild(line);
-  });
 
-  options.slice(0, 5).forEach((opt, idx) => {
-    const color = PALETTE[idx % PALETTE.length];
+    const text = document.createElementNS("http://www.w3.org/2000/svg", "text");
+    text.setAttribute("x", "0");
+    text.setAttribute("y", (yPos - 4).toString());
+    text.setAttribute("fill", "#64748b");
+    text.setAttribute("font-size", "10");
+    text.textContent = `${val}%`;
+    svg.appendChild(text);
+  }
 
-    // Leyenda
+  // Trazado de curvas
+  visibleSeries.forEach((item) => {
     const legItem = document.createElement("div");
     legItem.className = "chart-legend-item";
-    legItem.innerHTML = `<span class="legend-dot" style="background:${color}"></span> ${opt.name} <strong>${opt.probability}%</strong>`;
+    legItem.innerHTML = `<span class="legend-dot" style="background:${item.color}"></span> ${item.name} <strong>${item.probability}%</strong>`;
     legendBox.appendChild(legItem);
 
-    // Trazado de línea simulada que llega a su probabilidad actual
-    const base = opt.probability;
-    const points = [
-      { x: 0,   y: Math.max(5, base - (4 - idx * 2)) },
-      { x: 160, y: Math.max(5, base + (idx * 2 - 2)) },
-      { x: 320, y: Math.max(5, base - 2) },
-      { x: 480, y: Math.max(5, base + 3) },
-      { x: 640, y: Math.max(5, base - 1) },
-      { x: 800, y: base }
-    ];
-
+    const totalPoints = item.series.length;
     let d = "";
-    points.forEach((p, i) => {
-      const cy = 240 - (p.y / 100) * 220;
-      d += `${i === 0 ? "M" : "L"} ${p.x} ${cy} `;
+    item.series.forEach((val, i) => {
+      const cx = mapX(i, totalPoints);
+      const cy = mapY(val);
+      d += `${i === 0 ? "M" : "L"} ${cx} ${cy} `;
     });
+
+    if (chartConfig.viewMode === "focus") {
+      const startX = mapX(0, totalPoints);
+      const endX = mapX(totalPoints - 1, totalPoints);
+      const areaPathD = `${d} L ${endX} ${height} L ${startX} ${height} Z`;
+
+      const areaPath = document.createElementNS("http://www.w3.org/2000/svg", "path");
+      areaPath.setAttribute("d", areaPathD);
+      areaPath.setAttribute("fill", item.color);
+      areaPath.setAttribute("fill-opacity", "0.15");
+      svg.appendChild(areaPath);
+    }
 
     const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
     path.setAttribute("d", d);
     path.setAttribute("fill", "none");
-    path.setAttribute("stroke", color);
-    path.setAttribute("stroke-width", "2.5");
+    path.setAttribute("stroke", item.color);
+    path.setAttribute("stroke-width", chartConfig.viewMode === "focus" ? "3" : "2.2");
+    path.setAttribute("stroke-linejoin", "round");
     svg.appendChild(path);
 
-    // Punto terminal
-    const endCircle = document.createElementNS("http://www.w3.org/2000/svg", "circle");
-    endCircle.setAttribute("cx", "800");
-    endCircle.setAttribute("cy", 240 - (base / 100) * 220);
-    endCircle.setAttribute("r", "4");
-    endCircle.setAttribute("fill", color);
-    svg.appendChild(endCircle);
+    const endX = mapX(totalPoints - 1, totalPoints);
+    const endY = mapY(item.probability);
+    const circle = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+    circle.setAttribute("cx", endX.toString());
+    circle.setAttribute("cy", endY.toString());
+    circle.setAttribute("r", "4");
+    circle.setAttribute("fill", item.color);
+    svg.appendChild(circle);
   });
+
+  setupChartCrosshair(svg, visibleSeries, mapX);
 }
 
-// SLIP DE TRADING
+function setupChartCrosshair(svg, seriesList, mapX) {
+  const container = document.getElementById("chart-container");
+  const tooltip = document.getElementById("chart-tooltip");
+  const tooltipDate = document.getElementById("tooltip-date");
+  const tooltipBody = document.getElementById("tooltip-body");
+  if (!container || !tooltip) return;
+
+  const crosshair = document.createElementNS("http://www.w3.org/2000/svg", "line");
+  crosshair.setAttribute("stroke", "rgba(255, 255, 255, 0.25)");
+  crosshair.setAttribute("stroke-width", "1");
+  crosshair.setAttribute("stroke-dasharray", "3");
+  crosshair.setAttribute("y1", "0");
+  crosshair.setAttribute("y2", "240");
+  crosshair.style.display = "none";
+  svg.appendChild(crosshair);
+
+  container.onmousemove = (e) => {
+    const rect = svg.getBoundingClientRect();
+    const mouseX = e.clientX - rect.left;
+    const normX = Math.max(0, Math.min(800, (mouseX / rect.width) * 800));
+
+    const totalPoints = activeTimeLabels.length;
+    let closestIdx = 0;
+    let minDistance = Infinity;
+
+    for (let i = 0; i < totalPoints; i++) {
+      const ptX = mapX(i, totalPoints);
+      const dist = Math.abs(normX - ptX);
+      if (dist < minDistance) {
+        minDistance = dist;
+        closestIdx = i;
+      }
+    }
+
+    const exactX = mapX(closestIdx, totalPoints);
+    crosshair.setAttribute("x1", exactX.toString());
+    crosshair.setAttribute("x2", exactX.toString());
+    crosshair.style.display = "block";
+
+    tooltipDate.textContent = `${activeTimeLabels[closestIdx]} (${chartConfig.timeframe})`;
+    tooltipBody.innerHTML = "";
+
+    seriesList.forEach(item => {
+      const val = item.series[closestIdx];
+      const row = document.createElement("div");
+      row.className = "tooltip-row";
+      row.innerHTML = `
+        <span style="color:${item.color}">● ${item.name}</span>
+        <strong>${val}%</strong>
+      `;
+      tooltipBody.appendChild(row);
+    });
+
+    tooltip.classList.remove("hidden");
+    const tipLeft = Math.min(rect.width - 150, Math.max(10, mouseX - 60));
+    tooltip.style.left = `${tipLeft}px`;
+  };
+
+  container.onmouseleave = () => {
+    crosshair.style.display = "none";
+    tooltip.classList.add("hidden");
+  };
+}
+
+// ====================================================
+// SLIP DE TRADING (BUY/SELL)
+// ====================================================
 function updateSlipView() {
   if (!selectedOption) return;
 
