@@ -698,7 +698,7 @@ function setupChartCrosshair(svg, seriesList, mapX) {
 }
 
 // ====================================================
-// 8. ORDER SLIP (COMPRA MEDIANTE CPMM REAL)
+// 8. ORDER SLIP (COMPRA BASADA EN PROFUNDIDAD REAL)
 // ====================================================
 function updateSlipView() {
   if (!selectedOption) return;
@@ -768,28 +768,20 @@ executeTradeBtn.addEventListener("click", async () => {
   const amount = parseInt(tradeAmountInput.value) || 0;
   if (amount <= 0 || amount > userData.stars) return;
 
-  const L = 10000;
-  const currentProb = selectedOption.probability / 100;
-  let y = L * (1 - currentProb);
-  let n = L * currentProb;
+  const currentPrice = selectedOption.probability;
+  const p = currentPrice / 100;
 
-  let sharesReceived = 0;
-  let newProb = currentProb;
+  // Profundidad de liquidez basada en volumen real acumulado
+  const depth = Math.max(200000, (currentMarket.volume || 1845000) * 0.25);
+  const elasticity = p * (1 - p); 
+  const rawShift = (amount / depth) * elasticity * 100;
+  const deltaPoints = Math.round(Math.sign(rawShift) * Math.log1p(Math.abs(rawShift)) * 6);
 
-  if (selectedOutcome === "YES") {
-    const newN = n + amount;
-    const newY = (y * n) / newN;
-    sharesReceived = y - newY;
-    newProb = newN / (newY + newN);
-  } else {
-    const newY = y + amount;
-    const newN = (y * n) / newY;
-    sharesReceived = n - newN;
-    newProb = (y * n / newY) / (newY + (y * n / newY));
-  }
+  const delta = selectedOutcome === "YES" ? deltaPoints : -deltaPoints;
+  const newProbability = Math.min(99, Math.max(1, currentPrice + delta));
 
-  const targetProbPercent = Math.min(99, Math.max(1, Math.round(newProb * 100)));
-  const delta = targetProbPercent - selectedOption.probability;
+  const avgExecutionPrice = Math.max(1, Math.round((currentPrice + newProbability) / 2));
+  const shares = Math.max(1, Math.round(amount / (avgExecutionPrice / 100)));
 
   userData.stars -= amount;
   userData.positions.push({
@@ -799,8 +791,8 @@ executeTradeBtn.addEventListener("click", async () => {
     optionName: selectedOption.name,
     outcome: selectedOutcome,
     invested: amount,
-    shares: Math.max(1, Math.round(sharesReceived)),
-    buyPrice: Math.round((amount / sharesReceived) * 100)
+    shares: shares,
+    buyPrice: avgExecutionPrice
   });
 
   if (delta !== 0) {
@@ -856,7 +848,7 @@ function applyProbabilityShift(options, targetIdx, delta) {
 }
 
 // ====================================================
-// 9. PORTAFOLIO Y VENTA (CPMM)
+// 9. PORTAFOLIO Y VENTA (GLOBAL, CON FALLBACK DE MERCADO)
 // ====================================================
 portfolioBtn.addEventListener("click", () => {
   renderPortfolio();
@@ -867,7 +859,6 @@ settingsBtn.addEventListener("click", () => {
   document.getElementById("settings-modal").classList.remove("hidden");
 });
 
-// Función global de reseteo accesible desde el modal
 window.resetAccount = async function() {
   if (!currentUser) return;
   userData.stars = 5000;
@@ -876,7 +867,7 @@ window.resetAccount = async function() {
   updateUI();
   renderPortfolio();
   document.getElementById("settings-modal").classList.add("hidden");
-  alert("Cuenta reiniciada con éxito a 5,000 ⭐ y posiciones eliminadas.");
+  alert("Cuenta reiniciada a 5,000 ⭐ y posiciones purgadas.");
 };
 
 document.getElementById("confirm-reset-btn").addEventListener("click", window.resetAccount);
@@ -890,7 +881,6 @@ function renderPortfolio() {
     tbody.innerHTML = `<tr><td colspan="6" style="text-align:center; color:var(--poly-text-muted); padding:24px;">No posees acciones activas en este momento.</td></tr>`;
   } else {
     userData.positions.forEach((pos, idx) => {
-      // 1. Buscar el mercado por ID o por coincidencia de título
       let market = pos.marketId ? allMarkets.get(pos.marketId) : null;
       if (!market && pos.marketTitle) {
         for (const [mId, mData] of allMarkets.entries()) {
@@ -902,7 +892,6 @@ function renderPortfolio() {
         }
       }
 
-      // 2. Obtener probabilidad spot real [1% a 99%]
       let currentProbability = pos.buyPrice || 50;
       if (market && market.options) {
         const opt = market.options.find(o => o.id === pos.optionId || o.name === pos.optionName);
@@ -911,7 +900,6 @@ function renderPortfolio() {
         }
       }
 
-      // 3. Valuación Spot Real: Cada acción vale (probabilidad / 100) estrellas
       const spotPricePerShare = currentProbability / 100;
       const totalVal = Math.round(pos.shares * spotPricePerShare);
       const initialVal = pos.invested || totalVal;
@@ -952,7 +940,6 @@ function renderPortfolio() {
   document.getElementById("stat-net-worth").textContent = `⭐ ${Number(userData.stars + totalEquity).toLocaleString()}`;
 }
 
-// Función global de venta: funciona tanto con mercados activos como con compras antiguas huérfanas
 window.sellPosition = async function(index) {
   const pos = userData.positions[index];
   if (!pos || !currentUser) return;
@@ -979,30 +966,15 @@ window.sellPosition = async function(index) {
   let netPayout = 0;
 
   if (market && !market.resolved && opt) {
-    // Liquidación mediante CPMM si el mercado existe y sigue abierto
-    const L = 10000;
-    const probDecimal = opt.probability / 100;
-    let y = L * (1 - probDecimal);
-    let n = L * probDecimal;
+    const depth = Math.max(200000, (market.volume || 1845000) * 0.25);
+    const p = opt.probability / 100;
+    const elasticity = p * (1 - p);
+    const estValue = pos.shares * (currentProb / 100);
+    const rawShift = (estValue / depth) * elasticity * 100;
+    const deltaPoints = Math.round(Math.sign(rawShift) * Math.log1p(Math.abs(rawShift)) * 6);
+    const delta = pos.outcome === "YES" ? -deltaPoints : deltaPoints;
 
-    let payout = 0;
-    let newProb = probDecimal;
-
-    if (pos.outcome === "YES") {
-      const newY = y + Math.min(pos.shares, L);
-      const newN = (y * n) / newY;
-      payout = n - newN;
-      newProb = newN / (newY + newN);
-    } else {
-      const newN = n + Math.min(pos.shares, L);
-      const newY = (y * n) / newN;
-      payout = y - newY;
-      newProb = (newN) / (newY + newN);
-    }
-
-    netPayout = Math.max(1, Math.round(payout * 0.985));
-    const targetProbPercent = Math.min(99, Math.max(1, Math.round(newProb * 100)));
-    const delta = targetProbPercent - opt.probability;
+    netPayout = Math.max(1, Math.round(estValue * 0.985));
 
     if (delta !== 0) {
       const optIdx = market.options.findIndex(o => o.id === opt.id);
@@ -1019,20 +991,19 @@ window.sellPosition = async function(index) {
       });
     }
   } else {
-    // Fallback para compras viejas: liquidación lineal directa al precio spot
     const gross = pos.shares * (currentProb / 100);
     netPayout = Math.max(1, Math.round(gross * 0.985));
   }
 
-  // Acreditar el saldo al usuario y retirar la posición del arreglo
   userData.stars += netPayout;
   userData.positions.splice(index, 1);
 
   await setDoc(doc(db, "users", currentUser.uid), userData);
   updateUI();
   renderPortfolio();
-  alert(`Posición liquidada con éxito por ⭐ ${netPayout.toLocaleString()}`);
+  alert(`Posición liquidada por ⭐ ${netPayout.toLocaleString()}`);
 };
+
 // ====================================================
 // 10. CIERRE GLOBAL E INFALIBLE DE MODALES
 // ====================================================
