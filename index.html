@@ -8,42 +8,50 @@
 </head>
 <body>
   <header>
-    <h1>Ranking market simulator</h1>
+    <h1>Ranking Market Simulator</h1>
     <button id="google-login-btn" class="btn-secondary">Modo Editor (Google)</button>
   </header>
 
-  <!-- Panel Editor (Solo se muestra cuando entras con tu Gmail) -->
+  <!-- Panel Editor -->
   <section id="editor-section" class="hidden panel">
     <div class="editor-header">
-      <h2>Panel de Control de Mercados</h2>
+      <h2>Creador de Mercados Predictivos</h2>
       <button id="logout-btn" class="btn-danger">Cerrar Sesión</button>
     </div>
 
+    <!-- Integración con Spotify (Solo Recientes y Búsqueda) -->
     <div class="spotify-integration">
       <button id="spotify-login-btn" class="btn-spotify">Conectar con Spotify API</button>
 
       <div id="spotify-controls" class="hidden">
         <div class="tabs">
-          <button id="tab-top-tracks" class="tab-btn active">Top Canciones</button>
-          <button id="tab-top-artists" class="tab-btn">Top Artistas</button>
+          <button id="tab-recent-tracks" class="tab-btn active">Canciones Recientes</button>
+          <button id="tab-search" class="tab-btn">Buscador General</button>
         </div>
-        <input type="text" id="spotify-search-input" placeholder="Buscar cualquier canción o artista en Spotify...">
+        <input type="text" id="spotify-search-input" class="hidden" placeholder="Buscar artista o canción sin sesgo...">
         <div id="spotify-results-list" class="results-list"></div>
       </div>
     </div>
 
-    <div id="publish-form" class="hidden form-group">
-      <div class="selected-preview">
-        <img id="preview-img" src="" alt="Portada">
-        <div>
-          <h3 id="preview-title">Nombre</h3>
-          <p id="preview-subtitle">Subtítulo</p>
-        </div>
+    <!-- Constructor de Mercado Multi-Opción -->
+    <div id="market-builder" class="form-group">
+      <input type="text" id="market-title" placeholder="Pregunta del mercado (ej. ¿Cuál será la canción más reproducida este mes?)">
+
+      <h3>Opciones seleccionadas</h3>
+      <div id="selected-options-list" class="selected-list">
+        <p class="empty-hint">Selecciona canciones o artistas de la lista superior para añadirlos a este mercado.</p>
       </div>
 
-      <input type="text" id="market-title" placeholder="Pregunta (ej. ¿Terminará en el Top 1 este mes?)">
-      <input type="number" id="item-prob" placeholder="Probabilidad inicial (0 - 100)%" min="0" max="100">
-      <button id="confirm-publish-btn" class="btn-primary">Publicar / Actualizar Mercado</button>
+      <!-- Previsualización gráfica de la distribución -->
+      <div class="distribution-preview">
+        <div class="dist-header">
+          <span>Distribución de Probabilidad:</span>
+          <span id="total-prob-indicator" class="prob-invalid">Total: 0% / 100%</span>
+        </div>
+        <div id="distribution-bar" class="multi-progress-bar"></div>
+      </div>
+
+      <button id="confirm-publish-btn" class="btn-primary" disabled>Publicar Mercado (Debe sumar 100%)</button>
     </div>
   </section>
 
