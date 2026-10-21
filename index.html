@@ -4,13 +4,13 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Ranking Market Simulator</title>
-  <link rel="stylesheet" href="styles.css?v=3">
+  <link rel="stylesheet" href="styles.css?v=4">
 </head>
 <body>
   <!-- Navbar superior -->
   <header class="poly-nav">
     <div class="nav-left">
-      <div class="nav-brand">
+      <div class="nav-brand" id="brand-home-btn" style="cursor: pointer;">
         <svg width="22" height="22" viewBox="0 0 24 24" fill="#3b82f6">
           <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/>
         </svg>
@@ -24,6 +24,7 @@
         <span>⭐</span>
         <strong id="user-stars-amount">5,000</strong>
       </div>
+      <button id="nav-markets-btn" class="btn-nav">Mercados</button>
       <button id="portfolio-btn" class="btn-nav hidden">Portafolio</button>
       <button id="settings-btn" class="btn-nav hidden">⚙</button>
       <button id="admin-editor-btn" class="btn-nav hidden">Modo Editor</button>
@@ -32,12 +33,32 @@
     </div>
   </header>
 
-  <!-- Layout Principal Estilo Detalle Polymarket -->
-  <main class="market-main-container">
+  <!-- ==========================================
+       VISTA 1: CATÁLOGO DE MERCADOS (HOME)
+       ========================================== -->
+  <section id="home-view" class="home-container">
+    <div class="home-header">
+      <h2>Mercados Disponibles</h2>
+      <span id="markets-count-badge" class="badge-count">0 mercados</span>
+    </div>
+    
+    <div id="markets-catalog-grid" class="catalog-grid">
+      <!-- Tarjetas de cada mercado inyectadas dinámicamente -->
+    </div>
+  </section>
+
+  <!-- ==========================================
+       VISTA 2: DETALLE DEL MERCADO INDIVIDUAL
+       ========================================== -->
+  <main id="market-detail-view" class="market-main-container hidden">
     
     <!-- COLUMNA IZQUIERDA (Gráfico + Outcomes) -->
     <section class="market-left-column">
       
+      <div class="detail-nav-bar">
+        <button id="back-to-home-btn" class="btn-back">← Volver a Mercados</button>
+      </div>
+
       <div class="market-title-area">
         <img id="market-main-img" class="market-header-avatar" src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='56' height='56' fill='%231e293b'%3E%3Crect width='56' height='56'/%3E%3C/svg%3E" alt="Cover">
         <div>
@@ -53,7 +74,7 @@
       <!-- Leyenda superior del gráfico -->
       <div id="chart-legend-row" class="chart-legend-container"></div>
 
-      <!-- Barra de herramientas de visualización del gráfico -->
+      <!-- Barra de herramientas del gráfico -->
       <div class="chart-toolbar">
         <div class="chart-view-modes">
           <button id="view-mode-multi" class="tool-btn active">General</button>
