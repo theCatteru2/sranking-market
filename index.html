@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <title>Ranking Market Simulator</title>
-  <link rel="stylesheet" href="styles.css?v=6">
+  <link rel="stylesheet" href="styles.css?v=7">
 </head>
 <body>
   <!-- Navbar superior -->
@@ -183,11 +183,11 @@
   <!-- ==========================================
        MODAL 1: EDITOR DE MERCADOS
        ========================================== -->
-  <section id="editor-section" class="hidden editor-modal-overlay">
+  <section id="editor-section" class="hidden editor-modal-overlay" onclick="if(event.target === this) this.classList.add('hidden')">
     <div class="editor-modal-box">
       <div class="modal-header">
         <h2>Editor de Mercados Spotify</h2>
-        <button id="close-editor-btn" class="close-modal-btn">✕</button>
+        <button id="close-editor-btn" class="close-modal-btn" onclick="this.closest('.editor-modal-overlay').classList.add('hidden')">✕</button>
       </div>
 
       <div class="market-type-box">
@@ -264,11 +264,11 @@
   <!-- ==========================================
        MODAL 2: RESOLUCIÓN DE MERCADOS (ADMIN)
        ========================================== -->
-  <div id="resolve-modal" class="modal-overlay hidden">
+  <div id="resolve-modal" class="modal-overlay hidden" onclick="if(event.target === this) this.classList.add('hidden')">
     <div class="modal-content">
       <div class="modal-header">
         <h2>Declarar Resultado Final</h2>
-        <button class="close-modal-btn" data-target="resolve-modal">✕</button>
+        <button class="close-modal-btn" onclick="this.closest('.modal-overlay').classList.add('hidden')">✕</button>
       </div>
       <p style="font-size:0.85rem; color:var(--poly-text-muted); margin-bottom:14px;">
         Selecciona la opción que resultó ganadora. Cada acción en YES de dicha opción pagará automáticamente 100 ⭐.
@@ -280,11 +280,11 @@
   <!-- ==========================================
        MODAL 3: PORTAFOLIO Y VENTA DE ACCIONES
        ========================================== -->
-  <div id="portfolio-modal" class="modal-overlay hidden">
+  <div id="portfolio-modal" class="modal-overlay hidden" onclick="if(event.target === this) this.classList.add('hidden')">
     <div class="modal-content modal-lg">
       <div class="modal-header">
         <h2>Mi Portafolio de Inversión</h2>
-        <button class="close-modal-btn" data-target="portfolio-modal">✕</button>
+        <button id="close-portfolio-btn" class="close-modal-btn" onclick="this.closest('.modal-overlay').classList.add('hidden')">✕</button>
       </div>
       <div class="portfolio-stats-grid">
         <div class="stat-card"><span>Estrellas Disponibles</span><strong id="stat-available-stars">5,000 ⭐</strong></div>
@@ -313,11 +313,11 @@
   <!-- ==========================================
        MODAL 4: CONFIGURACIÓN
        ========================================== -->
-  <div id="settings-modal" class="modal-overlay hidden">
+  <div id="settings-modal" class="modal-overlay hidden" onclick="if(event.target === this) this.classList.add('hidden')">
     <div class="modal-content">
       <div class="modal-header">
         <h2>Configuración</h2>
-        <button class="close-modal-btn" data-target="settings-modal">✕</button>
+        <button class="close-modal-btn" onclick="this.closest('.modal-overlay').classList.add('hidden')">✕</button>
       </div>
       <p style="font-size:0.9rem; color:#8292a8; margin-bottom:15px; line-height:1.4;">
         Reinicia tu capital a 5,000 ⭐ y cancela todas las compras activas de tu portafolio.
@@ -326,6 +326,7 @@
     </div>
   </div>
 
-  <script type="module" src="app.js"></script>
+  <!-- Script versionado para invalidar caché en navegadores -->
+  <script type="module" src="app.js?v=7"></script>
 </body>
 </html>
