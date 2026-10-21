@@ -22,7 +22,7 @@ body { background-color: var(--poly-bg); color: var(--poly-text); min-height: 10
   display: flex; justify-content: space-between; align-items: center;
   padding: 14px 24px; background: #070a0e; border-bottom: 1px solid var(--poly-border);
 }
-.nav-brand { display: flex; align-items: center; gap: 8px; font-weight: 700; font-size: 1.1rem; }
+.nav-brand { display: flex; align-items: center; gap: 8px; font-weight: 700; font-size: 1.1rem; user-select: none; }
 .badge-spotify { background: #1db954; color: #000; font-size: 0.7rem; padding: 2px 6px; border-radius: 4px; font-weight: 800; }
 .nav-right { display: flex; align-items: center; gap: 10px; }
 .user-pill {
@@ -33,13 +33,118 @@ body { background-color: var(--poly-bg); color: var(--poly-text); min-height: 10
 .btn-nav:hover { color: #fff; border-color: #fff; }
 .btn-primary-blue { background: var(--poly-blue); color: #fff; border: none; padding: 8px 16px; border-radius: 6px; font-weight: 700; cursor: pointer; }
 
-/* LAYOUT 2 COLUMNAS */
+/* ====================================================
+   VISTA 1: CATÁLOGO DE MERCADOS (HOME GRID)
+   ==================================================== */
+.home-container {
+  max-width: 1350px;
+  margin: 30px auto;
+  padding: 0 24px;
+}
+
+.home-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 24px;
+  border-bottom: 1px solid var(--poly-border);
+  padding-bottom: 12px;
+}
+
+.badge-count {
+  background: var(--poly-gray-btn);
+  color: var(--poly-text-muted);
+  font-size: 0.8rem;
+  padding: 3px 10px;
+  border-radius: 12px;
+  border: 1px solid var(--poly-border);
+}
+
+.catalog-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));
+  gap: 20px;
+}
+
+.catalog-card {
+  background: var(--poly-card);
+  border: 1px solid var(--poly-border);
+  border-radius: 12px;
+  padding: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  cursor: pointer;
+  transition: transform 0.15s ease, border-color 0.15s ease;
+}
+
+.catalog-card:hover {
+  transform: translateY(-2px);
+  border-color: #3b82f6;
+}
+
+.card-top-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.card-thumb {
+  width: 48px;
+  height: 48px;
+  border-radius: 8px;
+  object-fit: cover;
+  flex-shrink: 0;
+}
+
+.card-title-text {
+  font-size: 1rem;
+  font-weight: 700;
+  color: #fff;
+  line-height: 1.35;
+}
+
+.catalog-outcomes-preview {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  background: #080b10;
+  padding: 10px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.04);
+}
+
+.catalog-row-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 0.85rem;
+}
+
+.catalog-row-item strong {
+  color: var(--poly-green);
+  font-size: 0.95rem;
+}
+
+.card-bottom-meta {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 0.75rem;
+  color: var(--poly-text-muted);
+  border-top: 1px solid var(--poly-border);
+  padding-top: 10px;
+}
+
+/* ====================================================
+   VISTA 2: DETALLE DEL MERCADO
+   ==================================================== */
 .market-main-container {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 360px;
   gap: 32px;
   max-width: 1350px;
-  margin: 24px auto;
+  margin: 20px auto;
   padding: 0 24px;
 }
 
@@ -47,7 +152,19 @@ body { background-color: var(--poly-bg); color: var(--poly-text); min-height: 10
   .market-main-container { grid-template-columns: 1fr; }
 }
 
-/* COLUMNA IZQUIERDA */
+.detail-nav-bar { margin-bottom: 8px; }
+.btn-back {
+  background: var(--poly-gray-btn);
+  border: 1px solid var(--poly-border);
+  color: var(--poly-text-muted);
+  padding: 6px 14px;
+  border-radius: 6px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+.btn-back:hover { color: #fff; border-color: #3b82f6; }
+
 .market-left-column { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
 .market-title-area { display: flex; align-items: center; gap: 16px; }
 .market-header-avatar { width: 56px; height: 56px; border-radius: 8px; object-fit: cover; }
