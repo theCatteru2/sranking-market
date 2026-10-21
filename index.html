@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Ranking Simulator</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header>
+    <h1>Ranking market simulator</h1>
+    <button id="google-login-btn" class="btn-secondary">Modo Editor (Google)</button>
+  </header>
+
+  <!-- Panel Editor (Solo se muestra cuando entras con tu Gmail) -->
+  <section id="editor-section" class="hidden panel">
+    <div class="editor-header">
+      <h2>Panel de Control de Mercados</h2>
+      <button id="logout-btn" class="btn-danger">Cerrar Sesión</button>
+    </div>
+
+    <div class="spotify-integration">
+      <button id="spotify-login-btn" class="btn-spotify">Conectar con Spotify API</button>
+
+      <div id="spotify-controls" class="hidden">
+        <div class="tabs">
+          <button id="tab-top-tracks" class="tab-btn active">Top Canciones</button>
+          <button id="tab-top-artists" class="tab-btn">Top Artistas</button>
+        </div>
+        <input type="text" id="spotify-search-input" placeholder="Buscar cualquier canción o artista en Spotify...">
+        <div id="spotify-results-list" class="results-list"></div>
+      </div>
+    </div>
+
+    <div id="publish-form" class="hidden form-group">
+      <div class="selected-preview">
+        <img id="preview-img" src="" alt="Portada">
+        <div>
+          <h3 id="preview-title">Nombre</h3>
+          <p id="preview-subtitle">Subtítulo</p>
+        </div>
+      </div>
+
+      <input type="text" id="market-title" placeholder="Pregunta (ej. ¿Terminará en el Top 1 este mes?)">
+      <input type="number" id="item-prob" placeholder="Probabilidad inicial (0 - 100)%" min="0" max="100">
+      <button id="confirm-publish-btn" class="btn-primary">Publicar / Actualizar Mercado</button>
+    </div>
+  </section>
+
+  <!-- Tablero Público en Tiempo Real -->
+  <main id="markets-grid" class="grid-container"></main>
+
+  <script type="module" src="app.js"></script>
+</body>
+</html>
