@@ -1,9 +1,9 @@
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
 import { getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
-import { getFirestore, collection, doc, setDoc, deleteDoc, onSnapshot, updateDoc } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
+import { getFirestore, collection, doc, setDoc, deleteDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
 
 // ====================================================
-// 1. REEMPLAZA ESTOS 3 DATOS CON LOS TUYOS
+// 1. CREDENCIALES
 // ====================================================
 const firebaseConfig = {
   apiKey: "AIzaSyDvm4QUpWVEhigb3xtckbPoCmYt5tdk8uA",
@@ -17,34 +17,43 @@ const firebaseConfig = {
 const ADMIN_EMAIL = "tizianomferro@gmail.com"; 
 const SPOTIFY_CLIENT_ID = "9b28d325cf6b49f6b389b6808ca1b7f0";
 
-// ====================================================
-// 2. INICIALIZACIÓN Y LOGIN CON GOOGLE
-// ====================================================
+// Solo se solicita historial reciente, sin métricas ni posiciones
+const SCOPES = ["user-read-recently-played"];
 const REDIRECT_URI = window.location.origin + window.location.pathname;
-const SCOPES = ["user-top-read"];
 
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const googleProvider = new GoogleAuthProvider();
 const db = getFirestore(app);
 
+// Estado local
 let isEditorActive = false;
 let spotifyToken = sessionStorage.getItem("spotify_access_token") || null;
-let currentSelectedItem = null;
+let currentStagedOptions = []; // Array de opciones para el nuevo mercado
+const PALETTE = ["#3b82f6", "#10b981", "#f59e0b", "#ec4899", "#8b5cf6", "#06b6d4"];
 
+// Elementos del DOM
 const editorSection = document.getElementById("editor-section");
 const googleLoginBtn = document.getElementById("google-login-btn");
 const marketsGrid = document.getElementById("markets-grid");
 const spotifyLoginBtn = document.getElementById("spotify-login-btn");
 const spotifyControls = document.getElementById("spotify-controls");
 const listContainer = document.getElementById("spotify-results-list");
-const publishForm = document.getElementById("publish-form");
+const selectedOptionsList = document.getElementById("selected-options-list");
+const distributionBar = document.getElementById("distribution-bar");
+const totalProbIndicator = document.getElementById("total-prob-indicator");
+const confirmPublishBtn = document.getElementById("confirm-publish-btn");
+const marketTitleInput = document.getElementById("market-title");
+const searchInput = document.getElementById("spotify-search-input");
 
+// ====================================================
+// 2. AUTENTICACIÓN GOOGLE
+// ====================================================
 googleLoginBtn.addEventListener("click", async () => {
   try {
     await signInWithPopup(auth, googleProvider);
   } catch (err) {
-    console.error("Error al iniciar sesión con Google:", err);
+    console.error("Error al autenticar:", err);
   }
 });
 
@@ -52,7 +61,7 @@ document.getElementById("logout-btn").addEventListener("click", () => signOut(au
 
 onAuthStateChanged(auth, async (user) => {
   if (user && user.email !== ADMIN_EMAIL) {
-    alert("Esta cuenta no tiene permisos de editor.");
+    alert("Acceso denegado: cuenta no autorizada.");
     await signOut(auth);
     return;
   }
@@ -61,7 +70,7 @@ onAuthStateChanged(auth, async (user) => {
   editorSection.classList.toggle("hidden", !isEditorActive);
   googleLoginBtn.classList.toggle("hidden", isEditorActive);
 
-  document.querySelectorAll(".admin-controls").forEach(el => {
+  document.querySelectorAll(".admin-card-actions").forEach(el => {
     el.classList.toggle("hidden", !isEditorActive);
   });
 
@@ -70,13 +79,13 @@ onAuthStateChanged(auth, async (user) => {
     if (spotifyToken) {
       spotifyLoginBtn.classList.add("hidden");
       spotifyControls.classList.remove("hidden");
-      loadTopTracks();
+      loadRecentlyPlayed();
     }
   }
 });
 
 // ====================================================
-// 3. CONEXIÓN CON SPOTIFY API (PKCE)
+// 3. SPOTIFY API (PKCE - Sin Spoilers de Ranking)
 // ====================================================
 function generateRandomString(length) {
   const possible = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
@@ -133,183 +142,287 @@ async function checkSpotifyRedirect() {
   window.history.replaceState({}, document.title, window.location.pathname);
 }
 
-async function loadTopTracks() {
-  const res = await fetch("https://api.spotify.com/v1/me/top/tracks?limit=15&time_range=short_term", {
+// Carga las últimas canciones reproducidas en orden cronológico inverso
+async function loadRecentlyPlayed() {
+  const res = await fetch("https://api.spotify.com/v1/me/player/recently-played?limit=40", {
     headers: { Authorization: `Bearer ${spotifyToken}` }
   });
-  if (!res.ok) return handleExpiredSpotifyToken();
+  if (!res.ok) return handleSessionExpired();
   const data = await res.json();
-  renderSpotifyList((data.items || []).map(t => ({
-    type: "track",
-    id: t.id,
-    name: t.name,
-    subtitle: t.artists.map(a => a.name).join(", "),
-    imageUrl: t.album.images[1]?.url || t.album.images[0]?.url || ""
-  })));
-}
 
-async function loadTopArtists() {
-  const res = await fetch("https://api.spotify.com/v1/me/top/artists?limit=15&time_range=short_term", {
-    headers: { Authorization: `Bearer ${spotifyToken}` }
+  // Deduplicación por ID de canción
+  const seen = new Set();
+  const uniqueTracks = [];
+  (data.items || []).forEach(item => {
+    if (!seen.has(item.track.id)) {
+      seen.add(item.track.id);
+      uniqueTracks.push({
+        id: item.track.id,
+        name: item.track.name,
+        subtitle: item.track.artists.map(a => a.name).join(", "),
+        imageUrl: item.track.album.images[1]?.url || item.track.album.images[0]?.url || ""
+      });
+    }
   });
-  if (!res.ok) return handleExpiredSpotifyToken();
-  const data = await res.json();
-  renderSpotifyList((data.items || []).map(a => ({
-    type: "artist",
-    id: a.id,
-    name: a.name,
-    subtitle: a.genres.slice(0, 2).join(", ") || "Artista",
-    imageUrl: a.images[1]?.url || a.images[0]?.url || ""
-  })));
+
+  renderSpotifyResults(uniqueTracks);
 }
 
-async function searchCatalog(query) {
+async function searchSpotify(query) {
   const res = await fetch(
-    `https://api.spotify.com/v1/search?q=${encodeURIComponent(query)}&type=track,artist&limit=8`,
+    `https://api.spotify.com/v1/search?q=${encodeURIComponent(query)}&type=track,artist&limit=10`,
     { headers: { Authorization: `Bearer ${spotifyToken}` } }
   );
-  if (!res.ok) return handleExpiredSpotifyToken();
+  if (!res.ok) return handleSessionExpired();
   const data = await res.json();
 
   const artists = (data.artists?.items || []).map(a => ({
-    type: "artist", id: a.id, name: a.name, subtitle: "Artista",
+    id: a.id, name: a.name, subtitle: "Artista",
     imageUrl: a.images[1]?.url || a.images[0]?.url || ""
   }));
   const tracks = (data.tracks?.items || []).map(t => ({
-    type: "track", id: t.id, name: t.name, subtitle: t.artists.map(a => a.name).join(", "),
+    id: t.id, name: t.name, subtitle: t.artists.map(a => a.name).join(", "),
     imageUrl: t.album?.images[1]?.url || t.album?.images[0]?.url || ""
   }));
-  renderSpotifyList([...artists, ...tracks]);
+
+  renderSpotifyResults([...artists, ...tracks]);
 }
 
-function handleExpiredSpotifyToken() {
+function handleSessionExpired() {
   sessionStorage.removeItem("spotify_access_token");
   spotifyToken = null;
   spotifyLoginBtn.classList.remove("hidden");
   spotifyControls.classList.add("hidden");
 }
 
-document.getElementById("tab-top-tracks").addEventListener("click", (e) => {
-  document.querySelectorAll(".tab-btn").forEach(b => b.classList.remove("active"));
-  e.target.classList.add("active");
-  loadTopTracks();
+// Pestañas
+document.getElementById("tab-recent-tracks").addEventListener("click", (e) => {
+  setActiveTab(e.target);
+  searchInput.classList.add("hidden");
+  loadRecentlyPlayed();
 });
 
-document.getElementById("tab-top-artists").addEventListener("click", (e) => {
-  document.querySelectorAll(".tab-btn").forEach(b => b.classList.remove("active"));
-  e.target.classList.add("active");
-  loadTopArtists();
+document.getElementById("tab-search").addEventListener("click", (e) => {
+  setActiveTab(e.target);
+  searchInput.classList.remove("hidden");
+  searchInput.focus();
+  listContainer.innerHTML = "<p class='empty-hint'>Escribe arriba para buscar en el catálogo.</p>";
 });
 
-let searchTimeout;
-document.getElementById("spotify-search-input").addEventListener("input", (e) => {
-  clearTimeout(searchTimeout);
-  searchTimeout = setTimeout(() => {
+function setActiveTab(element) {
+  document.querySelectorAll(".tab-btn").forEach(b => b.classList.remove("active"));
+  element.classList.add("active");
+}
+
+let searchTimer;
+searchInput.addEventListener("input", (e) => {
+  clearTimeout(searchTimer);
+  searchTimer = setTimeout(() => {
     const q = e.target.value.trim();
-    if (q) searchCatalog(q);
-    else loadTopTracks();
+    if (q) searchSpotify(q);
   }, 350);
 });
 
-function renderSpotifyList(items) {
+function renderSpotifyResults(items) {
   listContainer.innerHTML = "";
   items.forEach(item => {
     const row = document.createElement("div");
     row.className = "result-item";
     row.innerHTML = `
-      <img src="${item.imageUrl || 'https://via.placeholder.com/42'}" alt="${item.name}">
-      <div class="result-info">
-        <span class="result-name">${item.name}</span>
-        <span class="result-sub">${item.subtitle}</span>
+      <div class="result-left">
+        <img src="${item.imageUrl || 'https://via.placeholder.com/40'}" alt="${item.name}">
+        <div class="result-info">
+          <span class="result-name">${item.name}</span>
+          <span class="result-sub">${item.subtitle}</span>
+        </div>
       </div>
+      <button class="btn-secondary add-btn">+ Añadir</button>
     `;
-    row.addEventListener("click", () => {
-      currentSelectedItem = item;
-      publishForm.classList.remove("hidden");
-      document.getElementById("preview-img").src = item.imageUrl || "https://via.placeholder.com/56";
-      document.getElementById("preview-title").textContent = item.name;
-      document.getElementById("preview-subtitle").textContent = item.subtitle;
-      document.getElementById("market-title").focus();
-    });
+    row.querySelector(".add-btn").addEventListener("click", () => addOptionToDraft(item));
     listContainer.appendChild(row);
   });
 }
 
 // ====================================================
-// 4. GUARDADO Y LECTURA EN TIEMPO REAL (FIRESTORE)
+// 4. CONSTRUCTOR DE MERCADO Y GRÁFICO PREVIO (SUMA 100%)
 // ====================================================
-document.getElementById("confirm-publish-btn").addEventListener("click", async () => {
-  const title = document.getElementById("market-title").value.trim();
-  const prob = Number(document.getElementById("item-prob").value);
+function addOptionToDraft(item) {
+  if (currentStagedOptions.find(o => o.id === item.id)) {
+    return; // Evitar duplicar la misma opción en el mercado
+  }
 
-  if (!currentSelectedItem || !title || isNaN(prob)) return;
-
-  const docId = `${currentSelectedItem.type}_${currentSelectedItem.id}`;
-  await setDoc(doc(db, "markets", docId), {
-    marketTitle: title,
-    itemName: currentSelectedItem.name,
-    itemSubtitle: currentSelectedItem.subtitle,
-    probability: Math.min(100, Math.max(0, prob)),
-    imageUrl: currentSelectedItem.imageUrl,
-    updatedAt: Date.now()
+  // Porcentaje inicial por defecto sugerido
+  currentStagedOptions.push({
+    ...item,
+    probability: 0
   });
 
-  publishForm.classList.add("hidden");
-  document.getElementById("market-title").value = "";
-  document.getElementById("item-prob").value = "";
-  currentSelectedItem = null;
+  renderStagedOptions();
+  recalculateProbabilities();
+}
+
+function renderStagedOptions() {
+  selectedOptionsList.innerHTML = "";
+  if (currentStagedOptions.length === 0) {
+    selectedOptionsList.innerHTML = "<p class='empty-hint'>Selecciona canciones o artistas de la lista superior para añadirlos a este mercado.</p>";
+    return;
+  }
+
+  currentStagedOptions.forEach((opt, index) => {
+    const row = document.createElement("div");
+    row.className = "builder-row";
+    row.innerHTML = `
+      <div class="builder-row-info">
+        <img src="${opt.imageUrl || 'https://via.placeholder.com/34'}" alt="${opt.name}">
+        <div class="builder-row-names">
+          <strong>${opt.name}</strong>
+          <span style="color:var(--text-muted); display:block;">${opt.subtitle}</span>
+        </div>
+      </div>
+      <div style="display:flex; align-items:center; gap:8px;">
+        <input type="number" min="0" max="100" class="builder-prob-input" value="${opt.probability}" data-index="${index}">
+        <span>%</span>
+        <button class="btn-danger remove-btn" data-index="${index}" style="padding: 6px 10px;">✕</button>
+      </div>
+    `;
+
+    row.querySelector(".builder-prob-input").addEventListener("input", (e) => {
+      currentStagedOptions[index].probability = Number(e.target.value) || 0;
+      updateDistributionPreview();
+    });
+
+    row.querySelector(".remove-btn").addEventListener("click", () => {
+      currentStagedOptions.splice(index, 1);
+      renderStagedOptions();
+      updateDistributionPreview();
+    });
+
+    selectedOptionsList.appendChild(row);
+  });
+}
+
+function updateDistributionPreview() {
+  const sum = currentStagedOptions.reduce((acc, curr) => acc + curr.probability, 0);
+  totalProbIndicator.textContent = `Total: ${sum}% / 100%`;
+
+  distributionBar.innerHTML = "";
+
+  if (sum > 0) {
+    currentStagedOptions.forEach((opt, idx) => {
+      const seg = document.createElement("div");
+      seg.className = "dist-segment";
+      const color = PALETTE[idx % PALETTE.length];
+      seg.style.backgroundColor = color;
+      seg.style.width = `${(opt.probability / Math.max(sum, 100)) * 100}%`;
+      seg.title = `${opt.name}: ${opt.probability}%`;
+      distributionBar.appendChild(seg);
+    });
+  }
+
+  if (sum === 100 && currentStagedOptions.length >= 2) {
+    totalProbIndicator.className = "prob-valid";
+    confirmPublishBtn.disabled = false;
+    confirmPublishBtn.textContent = "Publicar Mercado";
+  } else {
+    totalProbIndicator.className = "prob-invalid";
+    confirmPublishBtn.disabled = true;
+    confirmPublishBtn.textContent = `Debe sumar exactamente 100% (Actual: ${sum}%)`;
+  }
+}
+
+function recalculateProbabilities() {
+  if (currentStagedOptions.length === 0) {
+    updateDistributionPreview();
+    return;
+  }
+  // Reparto equitativo inicial
+  const base = Math.floor(100 / currentStagedOptions.length);
+  const remainder = 100 % currentStagedOptions.length;
+
+  currentStagedOptions.forEach((opt, idx) => {
+    opt.probability = base + (idx === 0 ? remainder : 0);
+  });
+
+  renderStagedOptions();
+  updateDistributionPreview();
+}
+
+// ====================================================
+// 5. PUBLICACIÓN Y TIEMPO REAL (FIRESTORE)
+// ====================================================
+confirmPublishBtn.addEventListener("click", async () => {
+  const title = marketTitleInput.value.trim();
+  if (!title || currentStagedOptions.length < 2) return;
+
+  const docId = "market_" + Date.now();
+  await setDoc(doc(db, "markets", docId), {
+    title: title,
+    options: currentStagedOptions,
+    createdAt: Date.now()
+  });
+
+  // Resetear formulario
+  marketTitleInput.value = "";
+  currentStagedOptions = [];
+  renderStagedOptions();
+  updateDistributionPreview();
 });
 
+// Listener en tiempo real del tablero
 onSnapshot(collection(db, "markets"), (snapshot) => {
   marketsGrid.innerHTML = "";
 
   snapshot.forEach((docSnap) => {
     const data = docSnap.data();
     const id = docSnap.id;
-    const noProb = 100 - data.probability;
 
     const card = document.createElement("div");
     card.className = "market-card";
-    card.innerHTML = `
-      <div class="card-header">
-        <img src="${data.imageUrl || 'https://via.placeholder.com/52'}" alt="${data.itemName}">
-        <div>
-          <div class="card-question">${data.marketTitle}</div>
-          <div class="item-title">${data.itemName}</div>
-          <div class="item-subtitle">${data.itemSubtitle || ""}</div>
+
+    // Barra de distribución multicandidato arriba
+    let barSegments = "";
+    data.options.forEach((opt, i) => {
+      barSegments += `<div class="dist-segment" style="width:${opt.probability}%; background-color:${PALETTE[i % PALETTE.length]};"></div>`;
+    });
+
+    // Filas para cada opción del mercado
+    let optionsHtml = "";
+    data.options.forEach((opt) => {
+      optionsHtml += `
+        <div class="card-option-row">
+          <div class="option-main">
+            <div class="option-details">
+              <img src="${opt.imageUrl || 'https://via.placeholder.com/38'}" alt="${opt.name}">
+              <div class="option-titles">
+                <strong>${opt.name}</strong>
+                <span>${opt.subtitle}</span>
+              </div>
+            </div>
+            <div class="option-prob-value">${opt.probability}%</div>
+          </div>
+          <div class="option-bar-container">
+            <div class="option-bar-fill" style="width: ${opt.probability}%"></div>
+          </div>
         </div>
-      </div>
+      `;
+    });
 
-      <div class="prob-display">
-        <span class="prob-number">${data.probability}%</span>
-        <span class="card-question">Probabilidad</span>
+    card.innerHTML = `
+      <div class="market-card-title">${data.title}</div>
+      <div class="multi-progress-bar">${barSegments}</div>
+      <div class="market-card-options">
+        ${optionsHtml}
       </div>
-
-      <div class="progress-bar">
-        <div class="progress-fill" style="width: ${data.probability}%"></div>
-      </div>
-
-      <div class="shares-buttons">
-        <button class="btn-yes">Yes ${data.probability}¢</button>
-        <button class="btn-no">No ${noProb}¢</button>
-      </div>
-
-      <div class="admin-controls ${isEditorActive ? '' : 'hidden'}">
-        <input type="range" min="0" max="100" value="${data.probability}" data-id="${id}" class="quick-slider">
-        <button class="btn-danger delete-btn" data-id="${id}">Eliminar</button>
+      <div class="admin-card-actions ${isEditorActive ? '' : 'hidden'}">
+        <span style="font-size:0.75rem; color:var(--text-muted);">ID: ${id}</span>
+        <button class="btn-danger delete-market-btn" data-id="${id}" style="padding: 6px 12px; font-size: 0.8rem;">Eliminar Mercado</button>
       </div>
     `;
+
     marketsGrid.appendChild(card);
   });
 
-  document.querySelectorAll(".quick-slider").forEach(slider => {
-    slider.addEventListener("change", async (e) => {
-      const id = e.target.getAttribute("data-id");
-      await updateDoc(doc(db, "markets", id), { probability: Number(e.target.value) });
-    });
-  });
-
-  document.querySelectorAll(".delete-btn").forEach(btn => {
+  document.querySelectorAll(".delete-market-btn").forEach(btn => {
     btn.addEventListener("click", async (e) => {
       const id = e.target.getAttribute("data-id");
       await deleteDoc(doc(db, "markets", id));
