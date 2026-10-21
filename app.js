@@ -794,8 +794,13 @@ executeTradeBtn.addEventListener("click", async () => {
   });
 
   const optIdx = currentMarket.options.findIndex(o => o.id === selectedOption.id);
-  const delta = selectedOutcome === "YES" ? 2 : -2;
-  applyProbabilityShift(currentMarket.options, optIdx, delta);
+  // Cada 50 estrellas mueven 1 punto; compras menores a 25 estrellas no alteran la aguja
+  const impact = Math.min(10, Math.floor((amount + 25) / 50)); 
+  const delta = selectedOutcome === "YES" ? impact : -impact;
+
+  if (delta !== 0) {
+    applyProbabilityShift(currentMarket.options, optIdx, delta);
+  }
 
   const newSnapshotValues = {};
   currentMarket.options.forEach(o => {
