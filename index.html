@@ -2,9 +2,9 @@
 <html lang="es">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <title>Ranking Market Simulator</title>
-  <link rel="stylesheet" href="styles.css?v=5">
+  <link rel="stylesheet" href="styles.css?v=6">
 </head>
 <body>
   <!-- Navbar superior -->
@@ -54,6 +54,13 @@
       
       <div class="detail-nav-bar">
         <button id="back-to-home-btn" class="btn-back">← Volver a Mercados</button>
+        <button id="admin-resolve-market-btn" class="btn-danger hidden" style="margin-left: auto;">Finalizar Mercado</button>
+      </div>
+
+      <!-- Banner de Mercado Finalizado -->
+      <div id="market-resolved-banner" class="resolved-banner hidden">
+        <strong>MERCADO FINALIZADO</strong>
+        <span id="resolved-winner-text">Ganador: Opción</span>
       </div>
 
       <div class="market-title-area">
@@ -126,7 +133,6 @@
 
         <div class="slip-tabs">
           <button class="slip-tab active">Buy</button>
-          <button class="slip-tab">Sell</button>
         </div>
 
         <div class="slip-outcome-selector">
@@ -175,25 +181,23 @@
   </main>
 
   <!-- ==========================================
-       MODAL DEL EDITOR (CON MODO BINARIO Y MÚLTIPLE)
+       MODAL 1: EDITOR DE MERCADOS
        ========================================== -->
   <section id="editor-section" class="hidden editor-modal-overlay">
     <div class="editor-modal-box">
       <div class="modal-header">
         <h2>Editor de Mercados Spotify</h2>
-        <button id="close-editor-btn" class="btn-icon">✕</button>
+        <button id="close-editor-btn" class="close-modal-btn">✕</button>
       </div>
 
-      <!-- Selector de Tipo de Mercado -->
       <div class="market-type-box">
         <label class="form-label">Estructura del Mercado:</label>
         <div class="tabs">
-          <button id="mode-multi-btn" class="tab-btn active" type="button">Competitivo (Múltiples opciones)</button>
+          <button id="mode-multi-btn" class="tab-btn active" type="button">Competitivo (Múltiple)</button>
           <button id="mode-binary-btn" class="tab-btn" type="button">Binario Sí / No (1 Canción)</button>
         </div>
       </div>
 
-      <!-- Buscador e Historial Spotify -->
       <div class="spotify-integration">
         <button id="spotify-login-btn" class="btn-spotify">Conectar Spotify API</button>
         <div id="spotify-controls" class="hidden">
@@ -206,7 +210,6 @@
         </div>
       </div>
 
-      <!-- CONTENEDOR 1: MODO MÚLTIPLE (TOP 1 ENTRE VARIAS) -->
       <div id="multi-builder-container" class="form-group">
         <input type="text" id="market-title" placeholder="Pregunta (ej. ¿Cuál será la canción más escuchada?)">
         <h3>Opciones agregadas</h3>
@@ -225,7 +228,6 @@
         <button id="confirm-publish-btn" class="btn-primary-blue" disabled>Publicar Mercado</button>
       </div>
 
-      <!-- CONTENEDOR 2: MODO BINARIO (SÍ / NO PARA 1 CANCIÓN) -->
       <div id="binary-builder-container" class="form-group hidden">
         <label class="form-label">Canción seleccionada:</label>
         <div id="binary-track-selected" class="binary-selected-card">
@@ -237,7 +239,6 @@
           <button type="button" class="template-chip" data-condition="¿Estará en el Top 5 este mes?">Top 5 este mes</button>
           <button type="button" class="template-chip" data-condition="¿Estará en el Top 3 este mes?">Top 3 este mes</button>
           <button type="button" class="template-chip" data-condition="¿Estará en el Top 10 este mes?">Top 10 este mes</button>
-          <button type="button" class="template-chip" data-condition="¿Superará 100k reproducciones este año?">100k reproducciones</button>
         </div>
 
         <input type="text" id="binary-market-title" placeholder="Pregunta del mercado (ej. ¿Estará [Canción] en el Top 5 este mes?)">
@@ -260,11 +261,29 @@
     </div>
   </section>
 
-  <!-- Modales de Portafolio y Configuración -->
+  <!-- ==========================================
+       MODAL 2: RESOLUCIÓN DE MERCADOS (ADMIN)
+       ========================================== -->
+  <div id="resolve-modal" class="modal-overlay hidden">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h2>Declarar Resultado Final</h2>
+        <button class="close-modal-btn" data-target="resolve-modal">✕</button>
+      </div>
+      <p style="font-size:0.85rem; color:var(--poly-text-muted); margin-bottom:14px;">
+        Selecciona la opción que resultó ganadora. Cada acción en YES de dicha opción pagará automáticamente 100 ⭐.
+      </p>
+      <div id="resolve-options-list" class="resolve-list-container"></div>
+    </div>
+  </div>
+
+  <!-- ==========================================
+       MODAL 3: PORTAFOLIO Y VENTA DE ACCIONES
+       ========================================== -->
   <div id="portfolio-modal" class="modal-overlay hidden">
     <div class="modal-content modal-lg">
       <div class="modal-header">
-        <h2>Mi Portafolio</h2>
+        <h2>Mi Portafolio de Inversión</h2>
         <button class="close-modal-btn" data-target="portfolio-modal">✕</button>
       </div>
       <div class="portfolio-stats-grid">
@@ -272,23 +291,38 @@
         <div class="stat-card"><span>Valor en Acciones</span><strong id="stat-portfolio-value">0 ⭐</strong></div>
         <div class="stat-card"><span>Patrimonio Total</span><strong id="stat-net-worth">5,000 ⭐</strong></div>
       </div>
-      <table class="portfolio-table">
-        <thead>
-          <tr><th>Opción</th><th>Posición</th><th>Monto</th></tr>
-        </thead>
-        <tbody id="portfolio-items-body"></tbody>
-      </table>
+      
+      <div class="portfolio-table-scroll">
+        <table class="portfolio-table">
+          <thead>
+            <tr>
+              <th>Mercado / Opción</th>
+              <th>Posición</th>
+              <th>Acciones</th>
+              <th>Valor Spot</th>
+              <th>Rendimiento</th>
+              <th>Acción</th>
+            </tr>
+          </thead>
+          <tbody id="portfolio-items-body"></tbody>
+        </table>
+      </div>
     </div>
   </div>
 
+  <!-- ==========================================
+       MODAL 4: CONFIGURACIÓN
+       ========================================== -->
   <div id="settings-modal" class="modal-overlay hidden">
     <div class="modal-content">
       <div class="modal-header">
         <h2>Configuración</h2>
         <button class="close-modal-btn" data-target="settings-modal">✕</button>
       </div>
-      <p style="font-size:0.9rem; color:#8292a8; margin-bottom:15px;">Reinicia tu capital a 5,000 ⭐ y cancela todas las compras activas.</p>
-      <button id="confirm-reset-btn" class="btn-danger">Reiniciar todo</button>
+      <p style="font-size:0.9rem; color:#8292a8; margin-bottom:15px; line-height:1.4;">
+        Reinicia tu capital a 5,000 ⭐ y cancela todas las compras activas de tu portafolio.
+      </p>
+      <button id="confirm-reset-btn" class="btn-danger" style="width:100%; padding:12px;">Reiniciar Cuenta a 5,000 ⭐</button>
     </div>
   </div>
 
