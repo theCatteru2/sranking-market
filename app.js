@@ -945,21 +945,27 @@ async function sellPosition(index) {
     if (opt) {
       spotPrice = pos.outcome === "YES" ? opt.probability : (100 - opt.probability);
       
-      // Aplicar desplazamiento inverso en la probabilidad al vender
       const optIdx = market.options.findIndex(o => o.id === pos.optionId);
-      const delta = pos.outcome === "YES" ? -2 : 2;
-      applyProbabilityShift(market.options, optIdx, delta);
+      
+      // Cálculo proporcional: cada 50 estrellas vendidas mueven 1 punto
+      const sellValue = Math.round(pos.shares * (spotPrice / 100) * 100);
+      const impact = Math.min(10, Math.floor((sellValue + 25) / 50));
+      const delta = pos.outcome === "YES" ? -impact : impact;
 
-      // Registrar punto en historial
-      const newSnapshotValues = {};
-      market.options.forEach(o => newSnapshotValues[o.id] = o.probability);
-      if (!market.history) market.history = [];
-      market.history.push({ timestamp: Date.now(), values: newSnapshotValues });
+      if (delta !== 0) {
+        applyProbabilityShift(market.options, optIdx, delta);
 
-      await updateDoc(doc(db, "markets", pos.marketId), {
-        options: market.options,
-        history: market.history
-      });
+        // Solo registra nuevo punto en el gráfico si hubo cambio real
+        const newSnapshotValues = {};
+        market.options.forEach(o => newSnapshotValues[o.id] = o.probability);
+        if (!market.history) market.history = [];
+        market.history.push({ timestamp: Date.now(), values: newSnapshotValues });
+
+        await updateDoc(doc(db, "markets", pos.marketId), {
+          options: market.options,
+          history: market.history
+        });
+      }
     }
   }
 
