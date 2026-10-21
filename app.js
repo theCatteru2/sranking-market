@@ -1,6 +1,6 @@
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
 import { getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
-import { getFirestore, collection, doc, setDoc, getDoc, deleteDoc, onSnapshot, updateDoc } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
+import { getFirestore, collection, doc, setDoc, getDoc, onSnapshot, updateDoc } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
 
 const firebaseConfig = {
   apiKey: "AIzaSyDvm4QUpWVEhigb3xtckbPoCmYt5tdk8uA",
@@ -33,10 +33,11 @@ let currentStagedOptions = [];
 let spotifyToken = sessionStorage.getItem("spotify_access_token") || null;
 
 // Estados del Editor
-let editorMode = "multi"; // "multi" o "binary"
+let editorMode = "multi";
 let binarySelectedTrack = null;
 let binaryYesProb = 50;
 
+// Configuración del Gráfico
 let chartConfig = {
   viewMode: "multi",
   autoScale: true,
@@ -161,14 +162,52 @@ function updateUI() {
 }
 
 // ====================================================
-// 3. LECTURA EN TIEMPO REAL Y CATÁLOGO
+// 3. GENERADOR DE HISTORIAL BASE (SEMILLA INICIAL)
 // ====================================================
-onSnapshot(collection(db, "markets"), (snapshot) => {
+function createInitialHistorySnapshots(options) {
+  const now = Date.now();
+  const dayMs = 24 * 60 * 60 * 1000;
+  const history = [];
+  const points = 7;
+
+  for (let i = points - 1; i >= 0; i--) {
+    const timestamp = now - i * (dayMs * 2);
+    const snapshotValues = {};
+
+    options.forEach((opt, idx) => {
+      if (i === 0) {
+        snapshotValues[opt.id] = opt.probability;
+      } else {
+        const volatility = i * 1.5;
+        const wave = Math.sin((idx * 2 + (points - i)) * 1.2) * volatility;
+        snapshotValues[opt.id] = Math.max(1, Math.min(99, Math.round(opt.probability + wave)));
+      }
+    });
+
+    history.push({ timestamp, values: snapshotValues });
+  }
+
+  return history;
+}
+
+// ====================================================
+// 4. LECTURA EN TIEMPO REAL Y MIGRACIÓN AUTOMÁTICA
+// ====================================================
+onSnapshot(collection(db, "markets"), async (snapshot) => {
   allMarkets.clear();
 
-  snapshot.forEach(docSnap => {
-    allMarkets.set(docSnap.id, docSnap.data());
-  });
+  for (const docSnap of snapshot.docs) {
+    const data = docSnap.data();
+    const id = docSnap.id;
+
+    // Retrocompatibilidad: Si el mercado no tiene historial guardado, se le genera uno y se persiste
+    if (!data.history || !Array.isArray(data.history) || data.history.length === 0) {
+      data.history = createInitialHistorySnapshots(data.options);
+      await updateDoc(doc(db, "markets", id), { history: data.history });
+    }
+
+    allMarkets.set(id, data);
+  }
 
   marketsCountBadge.textContent = `${allMarkets.size} mercado${allMarkets.size === 1 ? '' : 's'}`;
   renderCatalogGrid();
@@ -227,7 +266,7 @@ function renderCatalogGrid() {
 }
 
 // ====================================================
-// 4. VISTA DE DETALLE DEL MERCADO
+// 5. VISTA DE DETALLE DEL MERCADO
 // ====================================================
 function renderMarketView() {
   if (!currentMarket || !currentMarket.options) return;
@@ -286,12 +325,12 @@ function renderMarketView() {
   });
 
   updateSlipView();
-  generateHistoricalSeries();
+  prepareChartDataFromHistory();
   renderSvgChart();
 }
 
 // ====================================================
-// 5. MOTOR DEL GRÁFICO (AUTO-ZOOM & MODOS)
+// 6. MOTOR DEL GRÁFICO BASADO EN HISTORIAL PERSISTIDO
 // ====================================================
 document.getElementById("view-mode-multi")?.addEventListener("click", (e) => {
   chartConfig.viewMode = "multi";
@@ -317,7 +356,7 @@ document.querySelectorAll(".time-btn").forEach(btn => {
     document.querySelectorAll(".time-btn").forEach(b => b.classList.remove("active"));
     e.target.classList.add("active");
     chartConfig.timeframe = e.target.getAttribute("data-time");
-    generateHistoricalSeries();
+    prepareChartDataFromHistory();
     renderSvgChart();
   });
 });
@@ -327,40 +366,54 @@ function updateViewModeButtons(activeBtn) {
   activeBtn.classList.add("active");
 }
 
-function generateHistoricalSeries() {
-  if (!currentMarket || !currentMarket.options) return;
+function prepareChartDataFromHistory() {
+  if (!currentMarket || !currentMarket.history || currentMarket.history.length === 0) return;
 
-  const sorted = [...currentMarket.options].sort((a, b) => b.probability - a.probability);
-  let stepCount = 8;
-  
-  switch(chartConfig.timeframe) {
-    case "1D": activeTimeLabels = ["00:00", "04:00", "08:00", "12:00", "16:00", "20:00", "Now"]; stepCount = 7; break;
-    case "1W": activeTimeLabels = ["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Hoy"]; stepCount = 7; break;
-    case "1M": activeTimeLabels = ["Sem 1", "Sem 2", "Sem 3", "Sem 4", "Hoy"]; stepCount = 5; break;
+  const now = Date.now();
+  let cutoff = 0;
+
+  switch (chartConfig.timeframe) {
+    case "1D": cutoff = now - 24 * 60 * 60 * 1000; break;
+    case "1W": cutoff = now - 7 * 24 * 60 * 60 * 1000; break;
+    case "1M": cutoff = now - 30 * 24 * 60 * 60 * 1000; break;
     case "ALL":
-    default:   activeTimeLabels = ["Jul", "Ago", "Sep", "Oct 5", "Oct 12", "Oct 18", "Now"]; stepCount = 7; break;
+    default:   cutoff = 0; break;
   }
 
-  chartDataCache = sorted.map((opt, idx) => {
-    const currentProb = opt.probability;
-    const history = [];
-    for (let i = 0; i < stepCount - 1; i++) {
-      const volatility = (stepCount - 1 - i) * 1.5;
-      const wave = Math.sin((i + idx * 2) * 1.2) * volatility;
-      history.push(Math.max(1, Math.min(99, Math.round(currentProb + wave))));
+  // Filtrar registros que caigan dentro del intervalo
+  let filteredHistory = currentMarket.history.filter(pt => pt.timestamp >= cutoff);
+
+  // Asegurar al menos 2 puntos para el trazado
+  if (filteredHistory.length < 2) {
+    filteredHistory = currentMarket.history.slice(-2);
+  }
+
+  // Generar etiquetas legibles según la estampa de tiempo real
+  activeTimeLabels = filteredHistory.map(pt => {
+    const d = new Date(pt.timestamp);
+    if (chartConfig.timeframe === "1D") {
+      return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
     }
-    history.push(currentProb);
+    return d.toLocaleDateString([], { month: 'short', day: 'numeric' });
+  });
+
+  const sortedOptions = [...currentMarket.options].sort((a, b) => b.probability - a.probability);
+
+  chartDataCache = sortedOptions.map((opt, idx) => {
+    const series = filteredHistory.map(pt => {
+      return pt.values && pt.values[opt.id] !== undefined ? pt.values[opt.id] : opt.probability;
+    });
 
     return {
       ...opt,
       color: PALETTE[idx % PALETTE.length],
-      series: history
+      series
     };
   });
 }
 
 function renderSvgChart() {
-  if (chartDataCache.length === 0) generateHistoricalSeries();
+  if (chartDataCache.length === 0) prepareChartDataFromHistory();
 
   const svg = document.getElementById("polySvgChart");
   const legendBox = document.getElementById("chart-legend-row");
@@ -396,7 +449,7 @@ function renderSvgChart() {
     }
   }
 
-  const mapX = (idx, total) => paddingX + (idx / (total - 1)) * (width - paddingX * 2);
+  const mapX = (idx, total) => total === 1 ? width / 2 : paddingX + (idx / (total - 1)) * (width - paddingX * 2);
   const mapY = (val) => height - ((val - minY) / (maxY - minY)) * height;
 
   const gridSteps = 4;
@@ -534,7 +587,7 @@ function setupChartCrosshair(svg, seriesList, mapX) {
 }
 
 // ====================================================
-// 6. ORDER SLIP
+// 7. ORDER SLIP (REGISTRO DINÁMICO EN EL HISTORIAL)
 // ====================================================
 function updateSlipView() {
   if (!selectedOption) return;
@@ -608,10 +661,28 @@ executeTradeBtn.addEventListener("click", async () => {
   const delta = selectedOutcome === "YES" ? 2 : -2;
   applyProbabilityShift(currentMarket.options, optIdx, delta);
 
+  // Registro del nuevo punto histórico en tiempo real
+  const newSnapshotValues = {};
+  currentMarket.options.forEach(o => {
+    newSnapshotValues[o.id] = o.probability;
+  });
+
+  if (!currentMarket.history) currentMarket.history = [];
+  currentMarket.history.push({
+    timestamp: Date.now(),
+    values: newSnapshotValues
+  });
+
+  // Limitar longitud máxima del historial para optimizar el documento (últimos 300 puntos)
+  if (currentMarket.history.length > 300) {
+    currentMarket.history = currentMarket.history.slice(-300);
+  }
+
   await setDoc(doc(db, "users", currentUser.uid), userData);
   await updateDoc(doc(db, "markets", currentMarketId), {
     options: currentMarket.options,
-    volume: (currentMarket.volume || 1845000) + amount
+    volume: (currentMarket.volume || 1845000) + amount,
+    history: currentMarket.history
   });
 
   updateUI();
@@ -640,7 +711,7 @@ function applyProbabilityShift(options, targetIdx, delta) {
 }
 
 // ====================================================
-// 7. PORTAFOLIO Y CONFIGURACIÓN
+// 8. PORTAFOLIO Y CONFIGURACIÓN
 // ====================================================
 portfolioBtn.addEventListener("click", () => {
   renderPortfolio();
@@ -686,12 +757,11 @@ document.querySelectorAll(".close-modal-btn").forEach(btn => {
 });
 
 // ====================================================
-// 8. SPOTIFY Y MODO EDITOR (MÚLTIPLE Y BINARIO)
+// 9. SPOTIFY Y MODO EDITOR (CON HISTORIAL INICIAL)
 // ====================================================
 adminEditorBtn.addEventListener("click", () => editorSection.classList.remove("hidden"));
 closeEditorBtn.addEventListener("click", () => editorSection.classList.add("hidden"));
 
-// Alternar entre modo Múltiple y Binario
 const modeMultiBtn = document.getElementById("mode-multi-btn");
 const modeBinaryBtn = document.getElementById("mode-binary-btn");
 const multiBuilderContainer = document.getElementById("multi-builder-container");
@@ -713,7 +783,6 @@ modeBinaryBtn.addEventListener("click", () => {
   multiBuilderContainer.classList.add("hidden");
 });
 
-// Control de Probabilidad del Modo Binario
 const binaryProbSlider = document.getElementById("binary-prob-slider");
 const binaryYesDisplay = document.getElementById("binary-yes-display");
 const binaryYesFill = document.getElementById("binary-yes-fill");
@@ -742,7 +811,6 @@ binaryMarketTitle.addEventListener("input", () => {
   confirmPublishBinaryBtn.disabled = !binarySelectedTrack || !binaryMarketTitle.value.trim();
 });
 
-// Chips de condición rápida para el modo binario
 document.querySelectorAll(".template-chip").forEach(chip => {
   chip.addEventListener("click", () => {
     if (!binarySelectedTrack) return alert("Selecciona primero una canción de la lista de Spotify.");
@@ -752,7 +820,6 @@ document.querySelectorAll(".template-chip").forEach(chip => {
   });
 });
 
-// Publicar mercado binario
 confirmPublishBinaryBtn.addEventListener("click", async () => {
   const title = binaryMarketTitle.value.trim();
   if (!binarySelectedTrack || !title) return;
@@ -774,12 +841,15 @@ confirmPublishBinaryBtn.addEventListener("click", async () => {
     }
   ];
 
+  const initialHistory = createInitialHistorySnapshots(options);
+
   await setDoc(doc(db, "markets", "market_" + Date.now()), {
     title,
     options,
     marketType: "binary",
     mainCover: binarySelectedTrack.imageUrl,
     volume: 1845000,
+    history: initialHistory,
     createdAt: Date.now()
   });
 
@@ -790,7 +860,7 @@ confirmPublishBinaryBtn.addEventListener("click", async () => {
   confirmPublishBinaryBtn.disabled = true;
 });
 
-// SPOTIFY PKCE
+// Flujo PKCE Spotify
 function generateRandomString(len) {
   const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
   return Array.from({ length: len }, () => chars.charAt(Math.floor(Math.random() * chars.length))).join("");
@@ -894,7 +964,6 @@ function renderEditorResults(items) {
     `;
     div.querySelector("button").addEventListener("click", () => {
       if (editorMode === "binary") {
-        // Modo Binario: Selecciona la única canción
         binarySelectedTrack = item;
         document.getElementById("binary-track-selected").innerHTML = `
           <img class="binary-card-thumb" src="${item.imageUrl || ''}">
@@ -908,7 +977,6 @@ function renderEditorResults(items) {
         }
         updateBinaryProbVisuals();
       } else {
-        // Modo Múltiple: Agrega a la lista acumulada
         if (!currentStagedOptions.some(o => o.id === item.id)) {
           currentStagedOptions.push({ ...item, probability: 0 });
           recalcEditorProbs();
@@ -919,7 +987,6 @@ function renderEditorResults(items) {
   });
 }
 
-// LOGICA MULTIPLE DEL EDITOR
 function recalcEditorProbs() {
   const count = currentStagedOptions.length;
   if (!count) return renderEditorStaged();
@@ -982,11 +1049,14 @@ document.getElementById("confirm-publish-btn").addEventListener("click", async (
   const title = document.getElementById("market-title").value.trim();
   if (!title) return;
 
+  const initialHistory = createInitialHistorySnapshots(currentStagedOptions);
+
   await setDoc(doc(db, "markets", "market_" + Date.now()), {
     title,
     options: currentStagedOptions,
     marketType: "multiple",
     volume: 1845000,
+    history: initialHistory,
     createdAt: Date.now()
   });
 
