@@ -1,6 +1,6 @@
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
 import { getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
-import { getFirestore, collection, doc, setDoc, getDoc, onSnapshot, updateDoc } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
+import { getFirestore, collection, doc, setDoc, getDoc, deleteDoc, onSnapshot, updateDoc } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
 
 const firebaseConfig = {
   apiKey: "AIzaSyDvm4QUpWVEhigb3xtckbPoCmYt5tdk8uA",
@@ -21,8 +21,10 @@ const auth = getAuth(app);
 const googleProvider = new GoogleAuthProvider();
 const db = getFirestore(app);
 
+// Estados de la app
 let currentUser = null;
 let userData = { stars: 5000, positions: [] };
+let allMarkets = new Map();
 let currentMarket = null;
 let currentMarketId = null;
 let selectedOption = null;
@@ -30,7 +32,6 @@ let selectedOutcome = "YES";
 let currentStagedOptions = [];
 let spotifyToken = sessionStorage.getItem("spotify_access_token") || null;
 
-// Configuración y caché de series del gráfico
 let chartConfig = {
   viewMode: "multi",
   autoScale: true,
@@ -39,6 +40,16 @@ let chartConfig = {
 let chartDataCache = [];
 let activeTimeLabels = [];
 
+// Elementos de Navegación y Vistas
+const homeView = document.getElementById("home-view");
+const marketDetailView = document.getElementById("market-detail-view");
+const marketsCatalogGrid = document.getElementById("markets-catalog-grid");
+const marketsCountBadge = document.getElementById("markets-count-badge");
+const brandHomeBtn = document.getElementById("brand-home-btn");
+const navMarketsBtn = document.getElementById("nav-markets-btn");
+const backToHomeBtn = document.getElementById("back-to-home-btn");
+
+// Botones y Modales
 const googleLoginBtn = document.getElementById("google-login-btn");
 const logoutBtn = document.getElementById("logout-btn");
 const adminEditorBtn = document.getElementById("admin-editor-btn");
@@ -49,6 +60,7 @@ const userStarsAmount = document.getElementById("user-stars-amount");
 const portfolioBtn = document.getElementById("portfolio-btn");
 const settingsBtn = document.getElementById("settings-btn");
 
+// Order Slip
 const slipTargetImg = document.getElementById("slip-target-img");
 const slipTargetName = document.getElementById("slip-target-name");
 const slipTargetSub = document.getElementById("slip-target-sub");
@@ -62,7 +74,34 @@ const slipToWinAmount = document.getElementById("slip-to-win-amount");
 const slipAvgPriceDisplay = document.getElementById("slip-avg-price-display");
 const executeTradeBtn = document.getElementById("execute-trade-btn");
 
-// AUTH
+// ====================================================
+// 1. MANEJO DE NAVEGACIÓN (HOME <-> DETALLE)
+// ====================================================
+function showHomeView() {
+  marketDetailView.classList.add("hidden");
+  homeView.classList.remove("hidden");
+  window.scrollTo(0, 0);
+}
+
+function showDetailView(marketId) {
+  if (!allMarkets.has(marketId)) return;
+  currentMarketId = marketId;
+  currentMarket = allMarkets.get(marketId);
+
+  homeView.classList.add("hidden");
+  marketDetailView.classList.remove("hidden");
+  window.scrollTo(0, 0);
+
+  renderMarketView();
+}
+
+brandHomeBtn.addEventListener("click", showHomeView);
+navMarketsBtn.addEventListener("click", showHomeView);
+backToHomeBtn.addEventListener("click", showHomeView);
+
+// ====================================================
+// 2. AUTHENTICATION Y PERFIL DE USUARIO
+// ====================================================
 googleLoginBtn.addEventListener("click", () => signInWithPopup(auth, googleProvider));
 logoutBtn.addEventListener("click", () => signOut(auth));
 
@@ -116,21 +155,77 @@ function updateUI() {
   recalculateSlip();
 }
 
-// LECTURA EN TIEMPO REAL
+// ====================================================
+// 3. LECTURA EN TIEMPO REAL Y CATÁLOGO GENERAL
+// ====================================================
 onSnapshot(collection(db, "markets"), (snapshot) => {
-  if (snapshot.empty) {
-    document.getElementById("display-market-title").textContent = "Sin mercados creados. Usa el Modo Editor para crear uno.";
+  allMarkets.clear();
+
+  snapshot.forEach(docSnap => {
+    allMarkets.set(docSnap.id, docSnap.data());
+  });
+
+  marketsCountBadge.textContent = `${allMarkets.size} mercado${allMarkets.size === 1 ? '' : 's'}`;
+  renderCatalogGrid();
+
+  // Si el usuario ya está viendo un mercado específico, sincronizar en vivo
+  if (currentMarketId && allMarkets.has(currentMarketId)) {
+    currentMarket = allMarkets.get(currentMarketId);
+    renderMarketView();
+  }
+});
+
+function renderCatalogGrid() {
+  marketsCatalogGrid.innerHTML = "";
+
+  if (allMarkets.size === 0) {
+    marketsCatalogGrid.innerHTML = `
+      <div style="grid-column: 1/-1; text-align: center; color: var(--poly-text-muted); padding: 40px;">
+        No hay mercados activos. Conéctate con tu cuenta administradora y pulsa "Modo Editor" para crear el primero.
+      </div>
+    `;
     return;
   }
 
-  snapshot.forEach(docSnap => {
-    currentMarketId = docSnap.id;
-    currentMarket = docSnap.data();
+  allMarkets.forEach((marketData, marketId) => {
+    const sorted = [...(marketData.options || [])].sort((a, b) => b.probability - a.probability);
+    const topImg = sorted[0]?.imageUrl || "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='48' height='48' fill='%231e293b'%3E%3Crect width='48' height='48'/%3E%3C/svg%3E";
+
+    // Resumen de las 2 mejores opciones para la tarjeta
+    let previewsHtml = "";
+    sorted.slice(0, 3).forEach(opt => {
+      previewsHtml += `
+        <div class="catalog-row-item">
+          <span>${opt.name}</span>
+          <strong>${opt.probability}%</strong>
+        </div>
+      `;
+    });
+
+    const card = document.createElement("div");
+    card.className = "catalog-card";
+    card.innerHTML = `
+      <div class="card-top-row">
+        <img class="card-thumb" src="${topImg}" alt="Cover">
+        <div class="card-title-text">${marketData.title}</div>
+      </div>
+      <div class="catalog-outcomes-preview">
+        ${previewsHtml}
+      </div>
+      <div class="card-bottom-meta">
+        <span>⭐ ${Number(marketData.volume || 1845000).toLocaleString()} Vol.</span>
+        <span>${sorted.length} opciones</span>
+      </div>
+    `;
+
+    card.addEventListener("click", () => showDetailView(marketId));
+    marketsCatalogGrid.appendChild(card);
   });
+}
 
-  renderMarketView();
-});
-
+// ====================================================
+// 4. VISTA DE DETALLE DEL MERCADO
+// ====================================================
 function renderMarketView() {
   if (!currentMarket || !currentMarket.options) return;
 
@@ -193,7 +288,7 @@ function renderMarketView() {
 }
 
 // ====================================================
-// GENERACIÓN DE DATOS TEMPORALES Y CONTROLES DEL GRÁFICO
+// 5. MOTOR DEL GRÁFICO (AUTO-ZOOM & MODOS)
 // ====================================================
 document.getElementById("view-mode-multi")?.addEventListener("click", (e) => {
   chartConfig.viewMode = "multi";
@@ -313,7 +408,6 @@ function renderSvgChart() {
   const mapX = (idx, total) => paddingX + (idx / (total - 1)) * (width - paddingX * 2);
   const mapY = (val) => height - ((val - minY) / (maxY - minY)) * height;
 
-  // Rejilla y etiquetas en el eje Y
   const gridSteps = 4;
   for (let i = 0; i <= gridSteps; i++) {
     const val = Math.round(minY + (i / gridSteps) * (maxY - minY));
@@ -337,7 +431,6 @@ function renderSvgChart() {
     svg.appendChild(text);
   }
 
-  // Trazado de curvas
   visibleSeries.forEach((item) => {
     const legItem = document.createElement("div");
     legItem.className = "chart-legend-item";
@@ -450,7 +543,7 @@ function setupChartCrosshair(svg, seriesList, mapX) {
 }
 
 // ====================================================
-// SLIP DE TRADING (BUY/SELL)
+// 6. ORDER SLIP (COMPRA Y VENTA)
 // ====================================================
 function updateSlipView() {
   if (!selectedOption) return;
@@ -555,7 +648,9 @@ function applyProbabilityShift(options, targetIdx, delta) {
   }
 }
 
-// PORTAFOLIO Y RESET
+// ====================================================
+// 7. PORTAFOLIO Y CONFIGURACIÓN
+// ====================================================
 portfolioBtn.addEventListener("click", () => {
   renderPortfolio();
   document.getElementById("portfolio-modal").classList.remove("hidden");
@@ -599,7 +694,9 @@ document.querySelectorAll(".close-modal-btn").forEach(btn => {
   });
 });
 
-// SPOTIFY & EDITOR
+// ====================================================
+// 8. SPOTIFY Y MODO EDITOR
+// ====================================================
 adminEditorBtn.addEventListener("click", () => editorSection.classList.remove("hidden"));
 closeEditorBtn.addEventListener("click", () => editorSection.classList.add("hidden"));
 
