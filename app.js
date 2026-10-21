@@ -21,7 +21,7 @@ const auth = getAuth(app);
 const googleProvider = new GoogleAuthProvider();
 const db = getFirestore(app);
 
-// Estados de la app
+// Estados globales
 let currentUser = null;
 let userData = { stars: 5000, positions: [] };
 let allMarkets = new Map();
@@ -32,6 +32,11 @@ let selectedOutcome = "YES";
 let currentStagedOptions = [];
 let spotifyToken = sessionStorage.getItem("spotify_access_token") || null;
 
+// Estados del Editor
+let editorMode = "multi"; // "multi" o "binary"
+let binarySelectedTrack = null;
+let binaryYesProb = 50;
+
 let chartConfig = {
   viewMode: "multi",
   autoScale: true,
@@ -40,7 +45,7 @@ let chartConfig = {
 let chartDataCache = [];
 let activeTimeLabels = [];
 
-// Elementos de Navegación y Vistas
+// Elementos de Navegación
 const homeView = document.getElementById("home-view");
 const marketDetailView = document.getElementById("market-detail-view");
 const marketsCatalogGrid = document.getElementById("markets-catalog-grid");
@@ -75,7 +80,7 @@ const slipAvgPriceDisplay = document.getElementById("slip-avg-price-display");
 const executeTradeBtn = document.getElementById("execute-trade-btn");
 
 // ====================================================
-// 1. MANEJO DE NAVEGACIÓN (HOME <-> DETALLE)
+// 1. MANEJO DE VISTAS (HOME <-> DETALLE)
 // ====================================================
 function showHomeView() {
   marketDetailView.classList.add("hidden");
@@ -156,7 +161,7 @@ function updateUI() {
 }
 
 // ====================================================
-// 3. LECTURA EN TIEMPO REAL Y CATÁLOGO GENERAL
+// 3. LECTURA EN TIEMPO REAL Y CATÁLOGO
 // ====================================================
 onSnapshot(collection(db, "markets"), (snapshot) => {
   allMarkets.clear();
@@ -168,7 +173,6 @@ onSnapshot(collection(db, "markets"), (snapshot) => {
   marketsCountBadge.textContent = `${allMarkets.size} mercado${allMarkets.size === 1 ? '' : 's'}`;
   renderCatalogGrid();
 
-  // Si el usuario ya está viendo un mercado específico, sincronizar en vivo
   if (currentMarketId && allMarkets.has(currentMarketId)) {
     currentMarket = allMarkets.get(currentMarketId);
     renderMarketView();
@@ -181,7 +185,7 @@ function renderCatalogGrid() {
   if (allMarkets.size === 0) {
     marketsCatalogGrid.innerHTML = `
       <div style="grid-column: 1/-1; text-align: center; color: var(--poly-text-muted); padding: 40px;">
-        No hay mercados activos. Conéctate con tu cuenta administradora y pulsa "Modo Editor" para crear el primero.
+        No hay mercados activos. Conéctate como administrador y pulsa "Modo Editor" para crear uno.
       </div>
     `;
     return;
@@ -189,9 +193,8 @@ function renderCatalogGrid() {
 
   allMarkets.forEach((marketData, marketId) => {
     const sorted = [...(marketData.options || [])].sort((a, b) => b.probability - a.probability);
-    const topImg = sorted[0]?.imageUrl || "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='48' height='48' fill='%231e293b'%3E%3Crect width='48' height='48'/%3E%3C/svg%3E";
+    const topImg = marketData.mainCover || sorted[0]?.imageUrl || "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='48' height='48' fill='%231e293b'%3E%3Crect width='48' height='48'/%3E%3C/svg%3E";
 
-    // Resumen de las 2 mejores opciones para la tarjeta
     let previewsHtml = "";
     sorted.slice(0, 3).forEach(opt => {
       previewsHtml += `
@@ -214,7 +217,7 @@ function renderCatalogGrid() {
       </div>
       <div class="card-bottom-meta">
         <span>⭐ ${Number(marketData.volume || 1845000).toLocaleString()} Vol.</span>
-        <span>${sorted.length} opciones</span>
+        <span>${marketData.marketType === 'binary' ? 'Binario (Sí/No)' : `${sorted.length} opciones`}</span>
       </div>
     `;
 
@@ -233,7 +236,7 @@ function renderMarketView() {
   document.getElementById("display-market-vol").textContent = `⭐ ${Number(currentMarket.volume || 1845000).toLocaleString()} Vol.`;
   
   const sorted = [...currentMarket.options].sort((a, b) => b.probability - a.probability);
-  document.getElementById("market-main-img").src = sorted[0]?.imageUrl || "";
+  document.getElementById("market-main-img").src = currentMarket.mainCover || sorted[0]?.imageUrl || "";
 
   if (!selectedOption || !sorted.some(o => o.id === selectedOption.id)) {
     selectedOption = sorted[0];
@@ -331,23 +334,11 @@ function generateHistoricalSeries() {
   let stepCount = 8;
   
   switch(chartConfig.timeframe) {
-    case "1D":
-      activeTimeLabels = ["00:00", "04:00", "08:00", "12:00", "16:00", "20:00", "Now"];
-      stepCount = 7;
-      break;
-    case "1W":
-      activeTimeLabels = ["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Hoy"];
-      stepCount = 7;
-      break;
-    case "1M":
-      activeTimeLabels = ["Sem 1", "Sem 2", "Sem 3", "Sem 4", "Hoy"];
-      stepCount = 5;
-      break;
+    case "1D": activeTimeLabels = ["00:00", "04:00", "08:00", "12:00", "16:00", "20:00", "Now"]; stepCount = 7; break;
+    case "1W": activeTimeLabels = ["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Hoy"]; stepCount = 7; break;
+    case "1M": activeTimeLabels = ["Sem 1", "Sem 2", "Sem 3", "Sem 4", "Hoy"]; stepCount = 5; break;
     case "ALL":
-    default:
-      activeTimeLabels = ["Jul", "Ago", "Sep", "Oct 5", "Oct 12", "Oct 18", "Now"];
-      stepCount = 7;
-      break;
+    default:   activeTimeLabels = ["Jul", "Ago", "Sep", "Oct 5", "Oct 12", "Oct 18", "Now"]; stepCount = 7; break;
   }
 
   chartDataCache = sorted.map((opt, idx) => {
@@ -543,7 +534,7 @@ function setupChartCrosshair(svg, seriesList, mapX) {
 }
 
 // ====================================================
-// 6. ORDER SLIP (COMPRA Y VENTA)
+// 6. ORDER SLIP
 // ====================================================
 function updateSlipView() {
   if (!selectedOption) return;
@@ -695,11 +686,111 @@ document.querySelectorAll(".close-modal-btn").forEach(btn => {
 });
 
 // ====================================================
-// 8. SPOTIFY Y MODO EDITOR
+// 8. SPOTIFY Y MODO EDITOR (MÚLTIPLE Y BINARIO)
 // ====================================================
 adminEditorBtn.addEventListener("click", () => editorSection.classList.remove("hidden"));
 closeEditorBtn.addEventListener("click", () => editorSection.classList.add("hidden"));
 
+// Alternar entre modo Múltiple y Binario
+const modeMultiBtn = document.getElementById("mode-multi-btn");
+const modeBinaryBtn = document.getElementById("mode-binary-btn");
+const multiBuilderContainer = document.getElementById("multi-builder-container");
+const binaryBuilderContainer = document.getElementById("binary-builder-container");
+
+modeMultiBtn.addEventListener("click", () => {
+  editorMode = "multi";
+  modeMultiBtn.classList.add("active");
+  modeBinaryBtn.classList.remove("active");
+  multiBuilderContainer.classList.remove("hidden");
+  binaryBuilderContainer.classList.add("hidden");
+});
+
+modeBinaryBtn.addEventListener("click", () => {
+  editorMode = "binary";
+  modeBinaryBtn.classList.add("active");
+  modeMultiBtn.classList.remove("active");
+  binaryBuilderContainer.classList.remove("hidden");
+  multiBuilderContainer.classList.add("hidden");
+});
+
+// Control de Probabilidad del Modo Binario
+const binaryProbSlider = document.getElementById("binary-prob-slider");
+const binaryYesDisplay = document.getElementById("binary-yes-display");
+const binaryYesFill = document.getElementById("binary-yes-fill");
+const binaryNoFill = document.getElementById("binary-no-fill");
+const binaryMarketTitle = document.getElementById("binary-market-title");
+const confirmPublishBinaryBtn = document.getElementById("confirm-publish-binary-btn");
+
+binaryProbSlider.addEventListener("input", (e) => {
+  binaryYesProb = parseInt(e.target.value) || 50;
+  updateBinaryProbVisuals();
+});
+
+function updateBinaryProbVisuals() {
+  binaryYesDisplay.textContent = `${binaryYesProb}%`;
+  binaryYesFill.style.width = `${binaryYesProb}%`;
+  binaryYesFill.textContent = `Yes ${binaryYesProb}%`;
+  
+  const noProb = 100 - binaryYesProb;
+  binaryNoFill.style.width = `${noProb}%`;
+  binaryNoFill.textContent = `No ${noProb}%`;
+
+  confirmPublishBinaryBtn.disabled = !binarySelectedTrack || !binaryMarketTitle.value.trim();
+}
+
+binaryMarketTitle.addEventListener("input", () => {
+  confirmPublishBinaryBtn.disabled = !binarySelectedTrack || !binaryMarketTitle.value.trim();
+});
+
+// Chips de condición rápida para el modo binario
+document.querySelectorAll(".template-chip").forEach(chip => {
+  chip.addEventListener("click", () => {
+    if (!binarySelectedTrack) return alert("Selecciona primero una canción de la lista de Spotify.");
+    const cond = chip.getAttribute("data-condition");
+    binaryMarketTitle.value = cond.replace("¿Estará en", `¿Estará "${binarySelectedTrack.name}" en`);
+    updateBinaryProbVisuals();
+  });
+});
+
+// Publicar mercado binario
+confirmPublishBinaryBtn.addEventListener("click", async () => {
+  const title = binaryMarketTitle.value.trim();
+  if (!binarySelectedTrack || !title) return;
+
+  const options = [
+    {
+      id: "opt_yes",
+      name: "Sí (Yes)",
+      subtitle: binarySelectedTrack.name,
+      imageUrl: binarySelectedTrack.imageUrl,
+      probability: binaryYesProb
+    },
+    {
+      id: "opt_no",
+      name: "No",
+      subtitle: binarySelectedTrack.name,
+      imageUrl: binarySelectedTrack.imageUrl,
+      probability: 100 - binaryYesProb
+    }
+  ];
+
+  await setDoc(doc(db, "markets", "market_" + Date.now()), {
+    title,
+    options,
+    marketType: "binary",
+    mainCover: binarySelectedTrack.imageUrl,
+    volume: 1845000,
+    createdAt: Date.now()
+  });
+
+  editorSection.classList.add("hidden");
+  binarySelectedTrack = null;
+  binaryMarketTitle.value = "";
+  document.getElementById("binary-track-selected").innerHTML = `<span class="empty-hint">Haz clic en "+ Añadir" en cualquier canción de arriba para elegirla.</span>`;
+  confirmPublishBinaryBtn.disabled = true;
+});
+
+// SPOTIFY PKCE
 function generateRandomString(len) {
   const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
   return Array.from({ length: len }, () => chars.charAt(Math.floor(Math.random() * chars.length))).join("");
@@ -802,15 +893,33 @@ function renderEditorResults(items) {
       <button class="btn-primary-blue" style="padding:4px 8px;font-size:0.75rem;">+ Añadir</button>
     `;
     div.querySelector("button").addEventListener("click", () => {
-      if (!currentStagedOptions.some(o => o.id === item.id)) {
-        currentStagedOptions.push({ ...item, probability: 0 });
-        recalcEditorProbs();
+      if (editorMode === "binary") {
+        // Modo Binario: Selecciona la única canción
+        binarySelectedTrack = item;
+        document.getElementById("binary-track-selected").innerHTML = `
+          <img class="binary-card-thumb" src="${item.imageUrl || ''}">
+          <div>
+            <strong>${item.name}</strong>
+            <span style="display:block;font-size:0.75rem;color:var(--poly-text-muted);">${item.subtitle}</span>
+          </div>
+        `;
+        if (!binaryMarketTitle.value.trim()) {
+          binaryMarketTitle.value = `¿Estará "${item.name}" en el Top 5 este mes?`;
+        }
+        updateBinaryProbVisuals();
+      } else {
+        // Modo Múltiple: Agrega a la lista acumulada
+        if (!currentStagedOptions.some(o => o.id === item.id)) {
+          currentStagedOptions.push({ ...item, probability: 0 });
+          recalcEditorProbs();
+        }
       }
     });
     box.appendChild(div);
   });
 }
 
+// LOGICA MULTIPLE DEL EDITOR
 function recalcEditorProbs() {
   const count = currentStagedOptions.length;
   if (!count) return renderEditorStaged();
@@ -876,6 +985,7 @@ document.getElementById("confirm-publish-btn").addEventListener("click", async (
   await setDoc(doc(db, "markets", "market_" + Date.now()), {
     title,
     options: currentStagedOptions,
+    marketType: "multiple",
     volume: 1845000,
     createdAt: Date.now()
   });
