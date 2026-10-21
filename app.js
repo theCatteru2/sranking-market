@@ -886,20 +886,33 @@ function renderPortfolio() {
     tbody.innerHTML = `<tr><td colspan="6" style="text-align:center; color:var(--poly-text-muted); padding:20px;">No posees acciones activas en este momento.</td></tr>`;
   } else {
     userData.positions.forEach((pos, idx) => {
-      const market = allMarkets.get(pos.marketId);
-      let currentPrice = pos.buyPrice || 50;
-
-      if (market && market.options) {
-        const opt = market.options.find(o => o.id === pos.optionId);
-        if (opt) {
-          currentPrice = pos.outcome === "YES" ? opt.probability : (100 - opt.probability);
+      // 1. Localizar mercado (por ID o por coincidencia de título en posiciones viejas)
+      let market = allMarkets.get(pos.marketId);
+      if (!market && pos.marketTitle) {
+        for (const [mId, mData] of allMarkets.entries()) {
+          if (mData.title === pos.marketTitle) {
+            market = mData;
+            pos.marketId = mId; // Auto-reparar referencia
+            break;
+          }
         }
       }
 
-      const totalVal = Math.round(pos.shares * (currentPrice / 100) * 100);
-      const initialVal = pos.invested;
+      // 2. Determinar precio spot actual
+      let currentProbability = pos.buyPrice || 50;
+      if (market && market.options) {
+        const opt = market.options.find(o => o.id === pos.optionId || o.name === pos.optionName);
+        if (opt) {
+          currentProbability = pos.outcome === "YES" ? opt.probability : (100 - opt.probability);
+        }
+      }
+
+      // 3. Valuación Spot Correcta: Acciones * (Probabilidad / 100)
+      const spotPricePerShare = currentProbability / 100;
+      const totalVal = Math.round(pos.shares * spotPricePerShare);
+      const initialVal = pos.invested || totalVal;
       const pnl = totalVal - initialVal;
-      const pnlPercent = initialVal > 0 ? ((pnl / initialVal) * 100).toFixed(1) : 0;
+      const pnlPercent = initialVal > 0 ? ((pnl / initialVal) * 100).toFixed(1) : "0.0";
       totalEquity += totalVal;
 
       const isMarketResolved = market && market.resolved === true;
@@ -915,13 +928,13 @@ function renderPortfolio() {
             ${pos.outcome}
           </span>
         </td>
-        <td>${pos.shares.toLocaleString()}</td>
-        <td><strong>⭐ ${totalVal.toLocaleString()}</strong></td>
-        <td style="color:${pnl >= 0 ? 'var(--poly-green)' : 'var(--poly-red)'};">
-          ${pnl >= 0 ? '+' : ''}${pnl} ⭐ (${pnlPercent}%)
+        <td>${Number(pos.shares).toLocaleString()}</td>
+        <td><strong>⭐ ${Number(totalVal).toLocaleString()}</strong></td>
+        <td style="color:${pnl >= 0 ? 'var(--poly-green)' : 'var(--poly-red)'}; font-weight:600;">
+          ${pnl >= 0 ? '+' : ''}${Number(pnl).toLocaleString()} ⭐ (${pnlPercent}%)
         </td>
         <td>
-          <button class="btn-sell" data-sell="${idx}" ${isMarketResolved ? 'disabled style="opacity:0.4; cursor:not-allowed;"' : ''}>
+          <button class="btn-sell" data-sell-idx="${idx}" ${isMarketResolved ? 'disabled style="opacity:0.4; cursor:not-allowed;"' : ''}>
             ${isMarketResolved ? 'Finalizado' : 'Vender'}
           </button>
         </td>
@@ -935,68 +948,84 @@ function renderPortfolio() {
     });
   }
 
-  document.getElementById("stat-portfolio-value").textContent = `⭐ ${totalEquity.toLocaleString()}`;
-  document.getElementById("stat-net-worth").textContent = `⭐ ${(userData.stars + totalEquity).toLocaleString()}`;
+  document.getElementById("stat-portfolio-value").textContent = `⭐ ${Number(totalEquity).toLocaleString()}`;
+  document.getElementById("stat-net-worth").textContent = `⭐ ${Number(userData.stars + totalEquity).toLocaleString()}`;
 }
-
 async function sellPosition(index) {
   const pos = userData.positions[index];
   if (!pos || !currentUser) return;
 
-  const market = allMarkets.get(pos.marketId);
-  if (!market || market.resolved) return;
+  // Localizar mercado
+  let market = allMarkets.get(pos.marketId);
+  let marketId = pos.marketId;
 
-  const opt = market.options.find(o => o.id === pos.optionId);
-  if (!opt) return;
-
-  const L = 10000;
-  const currentProb = opt.probability / 100;
-  let y = L * (1 - currentProb);
-  let n = L * currentProb;
-
-  let payout = 0;
-  let newProb = currentProb;
-
-  if (pos.outcome === "YES") {
-    const newY = y + pos.shares;
-    const newN = (y * n) / newY;
-    payout = n - newN;
-    newProb = newN / (newY + newN);
-  } else {
-    const newN = n + pos.shares;
-    const newY = (y * n) / newN;
-    payout = y - newY;
-    newProb = (newN) / (newY + newN);
+  if (!market && pos.marketTitle) {
+    for (const [mId, mData] of allMarkets.entries()) {
+      if (mData.title === pos.marketTitle) {
+        market = mData;
+        marketId = mId;
+        break;
+      }
+    }
   }
 
-  const netPayout = Math.max(1, Math.round(payout * 0.985));
-  const targetProbPercent = Math.min(99, Math.max(1, Math.round(newProb * 100)));
-  const delta = targetProbPercent - opt.probability;
-
-  if (delta !== 0) {
-    const optIdx = market.options.findIndex(o => o.id === pos.optionId);
-    applyProbabilityShift(market.options, optIdx, delta);
-
-    const newSnapshotValues = {};
-    market.options.forEach(o => newSnapshotValues[o.id] = o.probability);
-    if (!market.history) market.history = [];
-    market.history.push({ timestamp: Date.now(), values: newSnapshotValues });
-
-    await updateDoc(doc(db, "markets", pos.marketId), {
-      options: market.options,
-      history: market.history
-    });
+  let opt = null;
+  if (market && market.options) {
+    opt = market.options.find(o => o.id === pos.optionId || o.name === pos.optionName);
   }
 
+  let currentProb = opt ? (pos.outcome === "YES" ? opt.probability : (100 - opt.probability)) : (pos.buyPrice || 50);
+  
+  // Cálculo de liquidación con fee de salida del 1.5%
+  const grossPayout = pos.shares * (currentProb / 100);
+  const netPayout = Math.max(1, Math.round(grossPayout * 0.985));
+
+  // Si existe mercado activo y no está finalizado, aplicar impacto en liquidez
+  if (market && !market.resolved && opt) {
+    const L = 10000;
+    const probDecimal = opt.probability / 100;
+    let y = L * (1 - probDecimal);
+    let n = L * probDecimal;
+
+    let newProb = probDecimal;
+    if (pos.outcome === "YES") {
+      const newY = y + Math.min(pos.shares, L);
+      const newN = (y * n) / newY;
+      newProb = newN / (newY + newN);
+    } else {
+      const newN = n + Math.min(pos.shares, L);
+      const newY = (y * n) / newN;
+      newProb = (y * n / newY) / (newY + (y * n / newY));
+    }
+
+    const targetProbPercent = Math.min(99, Math.max(1, Math.round(newProb * 100)));
+    const delta = targetProbPercent - opt.probability;
+
+    if (delta !== 0) {
+      const optIdx = market.options.findIndex(o => o.id === opt.id);
+      applyProbabilityShift(market.options, optIdx, delta);
+
+      const newSnapshotValues = {};
+      market.options.forEach(o => newSnapshotValues[o.id] = o.probability);
+      if (!market.history) market.history = [];
+      market.history.push({ timestamp: Date.now(), values: newSnapshotValues });
+
+      await updateDoc(doc(db, "markets", marketId), {
+        options: market.options,
+        history: market.history
+      });
+    }
+  }
+
+  // Acreditar estrellas y remover posición
   userData.stars += netPayout;
   userData.positions.splice(index, 1);
 
   await setDoc(doc(db, "users", currentUser.uid), userData);
   updateUI();
   renderPortfolio();
-  alert(`Has liquidado tu posición por ⭐ ${netPayout.toLocaleString()}`);
+  alert(`Has vendido tu posición por ⭐ ${netPayout.toLocaleString()}`);
 }
-
 // ====================================================
 // 10. CIERRE GLOBAL E INFALIBLE DE MODALES
 // ====================================================
