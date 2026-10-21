@@ -3,21 +3,19 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Spotify Polymarket Simulator</title>
-  <link rel="stylesheet" href="styles.css">
-  <!-- Chart.js para el gráfico temporal estilo Polymarket -->
-  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <title>Spotify Polymarket</title>
+  <!-- ?v=2 obliga al navegador a no usar la versión vieja en caché -->
+  <link rel="stylesheet" href="styles.css?v=2">
 </head>
 <body>
-  <!-- Header / Navbar superior -->
   <header class="poly-nav">
     <div class="nav-left">
       <div class="nav-brand">
-        <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="#3b82f6">
           <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/>
         </svg>
         <span>Polymarket</span>
-        <span class="badge-spotify">Spotify Edition</span>
+        <span class="badge-spotify">Spotify</span>
       </div>
     </div>
 
@@ -34,7 +32,123 @@
     </div>
   </header>
 
-  <!-- Panel Editor (Solo visible para el creador) -->
+  <!-- Layout Principal Estilo Detalle Polymarket -->
+  <main class="market-main-container">
+    
+    <!-- COLUMNA IZQUIERDA (Gráfico + Outcomes) -->
+    <section class="market-left-column">
+      
+      <div class="market-title-area">
+        <img id="market-main-img" class="market-header-avatar" src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='56' height='56' fill='%231e293b'%3E%3Crect width='56' height='56'/%3E%3C/svg%3E" alt="Cover">
+        <div>
+          <h1 id="display-market-title" class="market-headline">Cargando mercado...</h1>
+          <div class="market-meta-row">
+            <span id="display-market-vol">⭐ 1,845,000 Vol.</span>
+            <span>•</span>
+            <span id="display-market-date">Oct 2026</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Leyenda superior del gráfico -->
+      <div id="chart-legend-row" class="chart-legend-container"></div>
+
+      <!-- Gráfico SVG Nativo Inmune a Adblockers -->
+      <div class="chart-wrapper">
+        <svg id="polySvgChart" class="svg-chart" viewBox="0 0 800 240" preserveAspectRatio="none">
+          <!-- Líneas inyectadas por JS -->
+        </svg>
+      </div>
+
+      <!-- Selector de temporalidad -->
+      <div class="chart-timeframe-bar">
+        <div class="time-buttons">
+          <button class="time-btn active">1D</button>
+          <button class="time-btn">1W</button>
+          <button class="time-btn">1M</button>
+          <button class="time-btn">ALL</button>
+        </div>
+      </div>
+
+      <!-- Tabla de Outcomes -->
+      <div class="outcomes-table-container">
+        <table class="outcomes-table">
+          <thead>
+            <tr>
+              <th style="width: 45%;">OUTCOME</th>
+              <th style="width: 20%; text-align: right;">% CHANCE</th>
+              <th style="width: 35%; text-align: right;">OPERAR</th>
+            </tr>
+          </thead>
+          <tbody id="outcomes-tbody"></tbody>
+        </table>
+      </div>
+
+    </section>
+
+    <!-- COLUMNA DERECHA (Panel de Trading / Order Slip) -->
+    <aside class="market-right-column">
+      <div class="order-slip">
+        
+        <div class="slip-header">
+          <img id="slip-target-img" class="slip-avatar" src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='40' height='40' fill='%231e293b'%3E%3Crect width='40' height='40'/%3E%3C/svg%3E" alt="Cover">
+          <div class="slip-target-meta">
+            <strong id="slip-target-name">Selecciona opción</strong>
+            <span id="slip-target-sub">Spotify Outcome</span>
+          </div>
+        </div>
+
+        <div class="slip-tabs">
+          <button class="slip-tab active">Buy</button>
+          <button class="slip-tab">Sell</button>
+        </div>
+
+        <div class="slip-outcome-selector">
+          <button id="slip-btn-yes" class="slip-outcome-btn active-yes">
+            <span>Yes</span>
+            <strong id="slip-yes-price">0¢</strong>
+          </button>
+          <button id="slip-btn-no" class="slip-outcome-btn">
+            <span>No</span>
+            <strong id="slip-no-price">0¢</strong>
+          </button>
+        </div>
+
+        <div class="slip-input-section">
+          <div class="slip-input-label-row">
+            <span>Amount</span>
+            <span id="slip-balance-hint">Balance ⭐ 5,000</span>
+          </div>
+          <div class="slip-input-wrapper">
+            <span class="slip-currency-symbol">⭐</span>
+            <input type="number" id="trade-amount-input" value="100" min="1">
+          </div>
+          <div class="slip-quick-amounts">
+            <button class="quick-chip" data-add="1">+$1</button>
+            <button class="quick-chip" data-add="20">+$20</button>
+            <button class="quick-chip" data-add="100">+$100</button>
+            <button class="quick-chip" id="quick-max-btn">Max</button>
+          </div>
+        </div>
+
+        <div class="slip-win-projection">
+          <div class="projection-row">
+            <span>To win</span>
+            <strong id="slip-to-win-amount" class="text-win-green">⭐ 0</strong>
+          </div>
+          <div class="projection-sub">
+            Avg. Price: <span id="slip-avg-price-display">0¢</span>
+          </div>
+        </div>
+
+        <button id="execute-trade-btn" class="slip-submit-btn">Trade</button>
+        <p class="slip-disclaimer">By trading, you agree to the Terms of Use.</p>
+      </div>
+    </aside>
+
+  </main>
+
+  <!-- Modal del Editor -->
   <section id="editor-section" class="hidden editor-modal-overlay">
     <div class="editor-modal-box">
       <div class="modal-header">
@@ -55,7 +169,7 @@
       </div>
 
       <div class="form-group">
-        <input type="text" id="market-title" placeholder="Pregunta (ej. Fed decision in January? / ¿Artista #1?)">
+        <input type="text" id="market-title" placeholder="Pregunta del mercado...">
         <h3>Opciones agregadas</h3>
         <div id="selected-options-list" class="selected-list">
           <p class="empty-hint">Añade opciones desde Spotify arriba.</p>
@@ -74,132 +188,7 @@
     </div>
   </section>
 
-  <!-- Layout Principal de Mercado Polymarket (2 Columnas) -->
-  <main class="market-main-container">
-    
-    <!-- COLUMNA IZQUIERDA: Info, Chart y Tabla de Opciones -->
-    <section class="market-left-column">
-      
-      <!-- Encabezado del mercado -->
-      <div class="market-title-area">
-        <img id="market-main-img" class="market-header-avatar" src="https://via.placeholder.com/56" alt="Cover">
-        <div>
-          <h1 id="display-market-title" class="market-headline">Cargando mercado...</h1>
-          <div class="market-meta-row">
-            <span id="display-market-vol">⭐ 0 Vol.</span>
-            <span>•</span>
-            <span id="display-market-date">Oct 2026</span>
-          </div>
-        </div>
-      </div>
-
-      <!-- Leyenda de colores del Chart -->
-      <div id="chart-legend-row" class="chart-legend-container"></div>
-
-      <!-- Contenedor del Gráfico Interactivo -->
-      <div class="chart-wrapper">
-        <canvas id="marketChart"></canvas>
-      </div>
-
-      <!-- Selector temporal inferior del gráfico -->
-      <div class="chart-timeframe-bar">
-        <div class="time-buttons">
-          <button class="time-btn active">1D</button>
-          <button class="time-btn">1W</button>
-          <button class="time-btn">1M</button>
-          <button class="time-btn">ALL</button>
-        </div>
-      </div>
-
-      <!-- Tabla de Outcomes (Opciones de apuesta) -->
-      <div class="outcomes-table-container">
-        <table class="outcomes-table">
-          <thead>
-            <tr>
-              <th style="width: 45%;">OUTCOME</th>
-              <th style="width: 20%; text-align: right;">% CHANCE</th>
-              <th style="width: 35%; text-align: right;">OPERAR</th>
-            </tr>
-          </thead>
-          <tbody id="outcomes-tbody">
-            <!-- Filas inyectadas dinámicamente -->
-          </tbody>
-        </table>
-      </div>
-
-    </section>
-
-    <!-- COLUMNA DERECHA: Slip de Trading (Polymarket Exacto) -->
-    <aside class="market-right-column">
-      <div class="order-slip">
-        
-        <!-- Header del Slip con la opción activa -->
-        <div class="slip-header">
-          <img id="slip-target-img" class="slip-avatar" src="https://via.placeholder.com/40" alt="Avatar">
-          <div class="slip-target-meta">
-            <strong id="slip-target-name">Selecciona opción</strong>
-            <span id="slip-target-sub">Spotify Outcome</span>
-          </div>
-        </div>
-
-        <!-- Pestañas Buy / Sell -->
-        <div class="slip-tabs">
-          <button id="slip-tab-buy" class="slip-tab active">Buy</button>
-          <button id="slip-tab-sell" class="slip-tab">Sell</button>
-        </div>
-
-        <!-- Selector YES / NO estilo Polymarket -->
-        <div class="slip-outcome-selector">
-          <button id="slip-btn-yes" class="slip-outcome-btn active-yes">
-            <span>Yes</span>
-            <strong id="slip-yes-price">0¢</strong>
-          </button>
-          <button id="slip-btn-no" class="slip-outcome-btn">
-            <span>No</span>
-            <strong id="slip-no-price">0¢</strong>
-          </button>
-        </div>
-
-        <!-- Input de Monto -->
-        <div class="slip-input-section">
-          <div class="slip-input-label-row">
-            <span>Amount</span>
-            <span id="slip-balance-hint">Balance ⭐ 5,000</span>
-          </div>
-          <div class="slip-input-wrapper">
-            <span class="slip-currency-symbol">⭐</span>
-            <input type="number" id="trade-amount-input" value="100" min="1">
-          </div>
-          <!-- Botones de incremento rápido -->
-          <div class="slip-quick-amounts">
-            <button class="quick-chip" data-add="1">+$1</button>
-            <button class="quick-chip" data-add="20">+$20</button>
-            <button class="quick-chip" data-add="100">+$100</button>
-            <button class="quick-chip" id="quick-max-btn">Max</button>
-          </div>
-        </div>
-
-        <!-- Proyección "To win" -->
-        <div class="slip-win-projection">
-          <div class="projection-row">
-            <span>To win <span class="info-dot">ⓘ</span></span>
-            <strong id="slip-to-win-amount" class="text-win-green">⭐ 0</strong>
-          </div>
-          <div class="projection-sub">
-            Avg. Price: <span id="slip-avg-price-display">0¢</span>
-          </div>
-        </div>
-
-        <!-- Botón de Ejecución -->
-        <button id="execute-trade-btn" class="slip-submit-btn">Trade</button>
-        
-        <p class="slip-disclaimer">By trading, you agree to the Terms of Use.</p>
-      </div>
-    </aside>
-
-  </main>
-
-  <!-- Modal de Portafolio -->
+  <!-- Modales de Portafolio y Configuración -->
   <div id="portfolio-modal" class="modal-overlay hidden">
     <div class="modal-content modal-lg">
       <div class="modal-header">
@@ -207,43 +196,26 @@
         <button class="close-modal-btn" data-target="portfolio-modal">✕</button>
       </div>
       <div class="portfolio-stats-grid">
-        <div class="stat-card">
-          <span>Estrellas Disponibles</span>
-          <strong id="stat-available-stars">5,000 ⭐</strong>
-        </div>
-        <div class="stat-card">
-          <span>Valor en Acciones</span>
-          <strong id="stat-portfolio-value">0 ⭐</strong>
-        </div>
-        <div class="stat-card">
-          <span>Patrimonio Total</span>
-          <strong id="stat-net-worth">5,000 ⭐</strong>
-        </div>
+        <div class="stat-card"><span>Estrellas Disponibles</span><strong id="stat-available-stars">5,000 ⭐</strong></div>
+        <div class="stat-card"><span>Valor en Acciones</span><strong id="stat-portfolio-value">0 ⭐</strong></div>
+        <div class="stat-card"><span>Patrimonio Total</span><strong id="stat-net-worth">5,000 ⭐</strong></div>
       </div>
-      <div class="table-wrap">
-        <table class="portfolio-table">
-          <thead>
-            <tr>
-              <th>Opción</th>
-              <th>Posición</th>
-              <th>Monto</th>
-              <th>Acción</th>
-            </tr>
-          </thead>
-          <tbody id="portfolio-items-body"></tbody>
-        </table>
-      </div>
+      <table class="portfolio-table">
+        <thead>
+          <tr><th>Opción</th><th>Posición</th><th>Monto</th></tr>
+        </thead>
+        <tbody id="portfolio-items-body"></tbody>
+      </table>
     </div>
   </div>
 
-  <!-- Modal Configuración -->
   <div id="settings-modal" class="modal-overlay hidden">
     <div class="modal-content">
       <div class="modal-header">
         <h2>Configuración</h2>
         <button class="close-modal-btn" data-target="settings-modal">✕</button>
       </div>
-      <p class="settings-desc">Reinicia tu capital a 5,000 ⭐ y cancela todas las compras activas.</p>
+      <p style="font-size:0.9rem; color:#8292a8; margin-bottom:15px;">Reinicia tu capital a 5,000 ⭐ y cancela todas las compras activas.</p>
       <button id="confirm-reset-btn" class="btn-danger">Reiniciar todo</button>
     </div>
   </div>
