@@ -3,18 +3,18 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Ranking Predicciones</title>
-  <!-- ?v=2 obliga al navegador a no usar la versión vieja en caché -->
-  <link rel="stylesheet" href="styles.css?v=2">
+  <title>Ranking Market Simulator</title>
+  <link rel="stylesheet" href="styles.css?v=3">
 </head>
 <body>
+  <!-- Navbar superior -->
   <header class="poly-nav">
     <div class="nav-left">
       <div class="nav-brand">
         <svg width="22" height="22" viewBox="0 0 24 24" fill="#3b82f6">
           <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/>
         </svg>
-        <span>Ranking</span>
+        <span>Ranking Market Simulator</span>
         <span class="badge-spotify">Spotify</span>
       </div>
     </div>
@@ -53,20 +53,33 @@
       <!-- Leyenda superior del gráfico -->
       <div id="chart-legend-row" class="chart-legend-container"></div>
 
-      <!-- Gráfico SVG Nativo Inmune a Adblockers -->
-      <div class="chart-wrapper">
-        <svg id="polySvgChart" class="svg-chart" viewBox="0 0 800 240" preserveAspectRatio="none">
-          <!-- Líneas inyectadas por JS -->
-        </svg>
+      <!-- Barra de herramientas de visualización del gráfico -->
+      <div class="chart-toolbar">
+        <div class="chart-view-modes">
+          <button id="view-mode-multi" class="tool-btn active">General</button>
+          <button id="view-mode-focus" class="tool-btn">Foco Individual</button>
+        </div>
+        <div class="chart-zoom-controls">
+          <button id="toggle-autoscale-btn" class="tool-btn active">🔍 Auto-Zoom: ON</button>
+        </div>
+      </div>
+
+      <!-- Gráfico SVG Nativo con Tooltip -->
+      <div class="chart-wrapper" id="chart-container">
+        <svg id="polySvgChart" class="svg-chart" viewBox="0 0 800 240" preserveAspectRatio="none"></svg>
+        <div id="chart-tooltip" class="chart-tooltip hidden">
+          <div id="tooltip-date" class="tooltip-header">Oct 2026</div>
+          <div id="tooltip-body" class="tooltip-items"></div>
+        </div>
       </div>
 
       <!-- Selector de temporalidad -->
       <div class="chart-timeframe-bar">
         <div class="time-buttons">
-          <button class="time-btn active">1D</button>
-          <button class="time-btn">1W</button>
-          <button class="time-btn">1M</button>
-          <button class="time-btn">ALL</button>
+          <button class="time-btn" data-time="1D">1D</button>
+          <button class="time-btn" data-time="1W">1W</button>
+          <button class="time-btn" data-time="1M">1M</button>
+          <button class="time-btn active" data-time="ALL">ALL</button>
         </div>
       </div>
 
