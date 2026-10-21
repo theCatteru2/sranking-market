@@ -60,7 +60,6 @@ const googleLoginBtn = document.getElementById("google-login-btn");
 const logoutBtn = document.getElementById("logout-btn");
 const adminEditorBtn = document.getElementById("admin-editor-btn");
 const editorSection = document.getElementById("editor-section");
-const closeEditorBtn = document.getElementById("close-editor-btn");
 const userBalanceBadge = document.getElementById("user-balance-badge");
 const userStarsAmount = document.getElementById("user-stars-amount");
 const portfolioBtn = document.getElementById("portfolio-btn");
@@ -157,8 +156,6 @@ async function loadOrCreateUserProfile(user) {
     userData = { email: user.email, stars: 5000, positions: [] };
     await setDoc(userRef, userData);
   }
-  
-  // Procesar cobros de mercados ya finalizados
   processResolvedMarketPayouts();
   updateUI();
 }
@@ -289,7 +286,6 @@ function renderMarketView() {
 
   const isResolved = currentMarket.resolved === true;
 
-  // Manejo del banner de resolución
   if (isResolved) {
     marketResolvedBanner.classList.remove("hidden");
     const winner = currentMarket.options.find(o => o.id === currentMarket.winningOptionId);
@@ -298,7 +294,6 @@ function renderMarketView() {
     marketResolvedBanner.classList.add("hidden");
   }
 
-  // Botón de finalizar (Solo Administrador y si no está finalizado)
   if (currentUser && currentUser.email === ADMIN_EMAIL && !isResolved) {
     adminResolveMarketBtn.classList.remove("hidden");
   } else {
@@ -366,7 +361,7 @@ function renderMarketView() {
 }
 
 // ====================================================
-// 6. FINALIZAR MERCADO (ADMIN) Y PAGO AUTOMÁTICO
+// 6. FINALIZAR MERCADO (ADMIN)
 // ====================================================
 adminResolveMarketBtn.addEventListener("click", () => {
   if (!currentMarket) return;
@@ -389,13 +384,11 @@ adminResolveMarketBtn.addEventListener("click", () => {
     row.querySelector("button").addEventListener("click", async () => {
       if (!confirm(`¿Confirmas que "${opt.name}" es la opción ganadora? Esto finalizará el mercado de forma irreversible.`)) return;
 
-      // Actualizar opciones para reflejar resultado 100% / 0%
       const finalOptions = currentMarket.options.map(o => ({
         ...o,
         probability: o.id === opt.id ? 100 : 0
       }));
 
-      // Registrar punto final en el historial
       const finalValues = {};
       finalOptions.forEach(o => finalValues[o.id] = o.probability);
       const updatedHistory = [...(currentMarket.history || [])];
@@ -420,13 +413,11 @@ adminResolveMarketBtn.addEventListener("click", () => {
   resolveModal.classList.remove("hidden");
 });
 
-// Acreditar pagos a usuarios con acciones ganadoras
 async function processResolvedMarketPayouts() {
   if (!currentUser || !userData.positions || userData.positions.length === 0) return;
 
   let totalPayout = 0;
   let modified = false;
-
   const remainingPositions = [];
 
   for (const pos of userData.positions) {
@@ -437,8 +428,7 @@ async function processResolvedMarketPayouts() {
                        (pos.outcome === "NO" && pos.optionId !== market.winningOptionId);
 
       if (isWinner) {
-        const payout = pos.shares * 100;
-        totalPayout += payout;
+        totalPayout += pos.shares * 100;
       }
     } else {
       remainingPositions.push(pos);
@@ -708,7 +698,7 @@ function setupChartCrosshair(svg, seriesList, mapX) {
 }
 
 // ====================================================
-// 8. ORDER SLIP (COMPRA)
+// 8. ORDER SLIP (COMPRA MEDIANTE CPMM REAL)
 // ====================================================
 function updateSlipView() {
   if (!selectedOption) return;
@@ -778,39 +768,29 @@ executeTradeBtn.addEventListener("click", async () => {
   const amount = parseInt(tradeAmountInput.value) || 0;
   if (amount <= 0 || amount > userData.stars) return;
 
-  // 1. Inicializar fondo de liquidez virtual del mercado (L = 10,000 estrellas)
   const L = 10000;
   const currentProb = selectedOption.probability / 100;
-  
-  // Reservas del modelo CPMM: y * n = k
-  let y = L * (1 - currentProb); // Reserva de YES
-  let n = L * currentProb;       // Reserva de NO
+  let y = L * (1 - currentProb);
+  let n = L * currentProb;
 
   let sharesReceived = 0;
   let newProb = currentProb;
 
-  // 2. Ejecutar la curva de intercambio según el resultado elegido
   if (selectedOutcome === "YES") {
     const newN = n + amount;
     const newY = (y * n) / newN;
     sharesReceived = y - newY;
-    
-    // Nueva probabilidad resultante del pool
     newProb = newN / (newY + newN);
   } else {
     const newY = y + amount;
     const newN = (y * n) / newY;
     sharesReceived = n - newN;
-    
-    // Al comprar NO, la probabilidad de YES cae
     newProb = (y * n / newY) / (newY + (y * n / newY));
   }
 
-  // Conversión a porcentaje entero [1% - 99%]
   const targetProbPercent = Math.min(99, Math.max(1, Math.round(newProb * 100)));
   const delta = targetProbPercent - selectedOption.probability;
 
-  // 3. Descontar saldo y registrar la posición
   userData.stars -= amount;
   userData.positions.push({
     marketId: currentMarketId,
@@ -820,10 +800,9 @@ executeTradeBtn.addEventListener("click", async () => {
     outcome: selectedOutcome,
     invested: amount,
     shares: Math.max(1, Math.round(sharesReceived)),
-    buyPrice: Math.round((amount / sharesReceived) * 100) // Precio promedio real pagado por acción
+    buyPrice: Math.round((amount / sharesReceived) * 100)
   });
 
-  // 4. Si el volumen desplazó la cuota, rebalancear el mercado y registrar el punto
   if (delta !== 0) {
     const optIdx = currentMarket.options.findIndex(o => o.id === selectedOption.id);
     applyProbabilityShift(currentMarket.options, optIdx, delta);
@@ -877,7 +856,7 @@ function applyProbabilityShift(options, targetIdx, delta) {
 }
 
 // ====================================================
-// 9. PORTAFOLIO Y VENTA DIRECTA DE ACCIONES
+// 9. PORTAFOLIO Y VENTA (CPMM)
 // ====================================================
 portfolioBtn.addEventListener("click", () => {
   renderPortfolio();
@@ -970,7 +949,6 @@ async function sellPosition(index) {
   const opt = market.options.find(o => o.id === pos.optionId);
   if (!opt) return;
 
-  // 1. Reconstruir estado actual del pool CPMM
   const L = 10000;
   const currentProb = opt.probability / 100;
   let y = L * (1 - currentProb);
@@ -979,22 +957,18 @@ async function sellPosition(index) {
   let payout = 0;
   let newProb = currentProb;
 
-  // 2. Liquidar acciones contra el pool (proceso inverso)
   if (pos.outcome === "YES") {
-    // El usuario devuelve acciones YES al pool: y sube, n baja (se extraen estrellas)
     const newY = y + pos.shares;
     const newN = (y * n) / newY;
     payout = n - newN;
     newProb = newN / (newY + newN);
   } else {
-    // El usuario devuelve acciones NO al pool: n sube, y baja
     const newN = n + pos.shares;
     const newY = (y * n) / newN;
     payout = y - newY;
     newProb = (newN) / (newY + newN);
   }
 
-  // Tasa de retiro estándar del 1.5%
   const netPayout = Math.max(1, Math.round(payout * 0.985));
   const targetProbPercent = Math.min(99, Math.max(1, Math.round(newProb * 100)));
   const delta = targetProbPercent - opt.probability;
@@ -1024,10 +998,26 @@ async function sellPosition(index) {
 }
 
 // ====================================================
-// 10. SPOTIFY Y MODO EDITOR
+// 10. CIERRE GLOBAL E INFALIBLE DE MODALES
+// ====================================================
+document.addEventListener("click", (e) => {
+  const closeBtn = e.target.closest(".close-modal-btn");
+  if (closeBtn) {
+    const modal = closeBtn.closest(".modal-overlay, .editor-modal-overlay");
+    if (modal) modal.classList.add("hidden");
+  }
+});
+
+window.addEventListener("keydown", (e) => {
+  if (e.key === "Escape") {
+    document.querySelectorAll(".modal-overlay, .editor-modal-overlay").forEach(m => m.classList.add("hidden"));
+  }
+});
+
+// ====================================================
+// 11. SPOTIFY Y MODO EDITOR
 // ====================================================
 adminEditorBtn.addEventListener("click", () => editorSection.classList.remove("hidden"));
-closeEditorBtn.addEventListener("click", () => editorSection.classList.add("hidden"));
 
 const modeMultiBtn = document.getElementById("mode-multi-btn");
 const modeBinaryBtn = document.getElementById("mode-binary-btn");
@@ -1128,7 +1118,7 @@ confirmPublishBinaryBtn.addEventListener("click", async () => {
   confirmPublishBinaryBtn.disabled = true;
 });
 
-// Flujo PKCE Spotify
+// Spotify PKCE
 function generateRandomString(len) {
   const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
   return Array.from({ length: len }, () => chars.charAt(Math.floor(Math.random() * chars.length))).join("");
@@ -1276,21 +1266,22 @@ function renderEditorStaged() {
       </div>
       <div>
         <input type="number" class="builder-prob-input" value="${opt.probability}" data-idx="${idx}">%
-        <button class="btn-icon close-modal-btn" data-del="${idx}" style="width:24px;height:24px;font-size:0.8rem;">✕</button>
+        <button class="close-modal-btn" data-del="${idx}" style="width:24px;height:24px;font-size:0.8rem;" onclick="removeDraftOption(${idx})">✕</button>
       </div>
     `;
     row.querySelector("input").addEventListener("input", (e) => {
       currentStagedOptions[idx].probability = parseInt(e.target.value) || 0;
       updateEditorBar();
     });
-    row.querySelector("[data-del]").addEventListener("click", () => {
-      currentStagedOptions.splice(idx, 1);
-      recalcEditorProbs();
-    });
     list.appendChild(row);
   });
   updateEditorBar();
 }
+
+window.removeDraftOption = function(idx) {
+  currentStagedOptions.splice(idx, 1);
+  recalcEditorProbs();
+};
 
 function updateEditorBar() {
   const sum = currentStagedOptions.reduce((s, o) => s + o.probability, 0);
