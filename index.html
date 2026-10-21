@@ -3,59 +3,174 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Ranking Simulator</title>
+  <title>Ranking Market Simulator</title>
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
   <header>
-    <h1>Ranking Market Simulator</h1>
-    <button id="google-login-btn" class="btn-secondary">Modo Editor (Google)</button>
-  </header>
-
-  <!-- Panel Editor -->
-  <section id="editor-section" class="hidden panel">
-    <div class="editor-header">
-      <h2>Creador de Mercados Predictivos</h2>
-      <button id="logout-btn" class="btn-danger">Cerrar Sesión</button>
+    <div class="brand">
+      <h1>Ranking Market Simulator</h1>
+      <span class="badge">Experimental</span>
     </div>
 
-    <!-- Integración con Spotify (Solo Recientes y Búsqueda) -->
+    <!-- Barra de Estado del Usuario -->
+    <div class="user-nav">
+      <div id="user-balance-badge" class="balance-badge hidden">
+        <span>⭐</span>
+        <strong id="user-stars-amount">5,000</strong>
+      </div>
+      
+      <button id="portfolio-btn" class="btn-secondary hidden">Mi Portafolio</button>
+      <button id="settings-btn" class="btn-secondary hidden">⚙ Configuración</button>
+      <button id="admin-editor-btn" class="btn-primary hidden">Modo Editor</button>
+      <button id="google-login-btn" class="btn-primary">Iniciar Sesión</button>
+      <button id="logout-btn" class="btn-danger hidden">Salir</button>
+    </div>
+  </header>
+
+  <!-- Modal de Portafolio / Perfil -->
+  <div id="portfolio-modal" class="modal-overlay hidden">
+    <div class="modal-content modal-lg">
+      <div class="modal-header">
+        <h2>Mi Portafolio de Posiciones</h2>
+        <button class="close-modal-btn" data-target="portfolio-modal">✕</button>
+      </div>
+      
+      <div class="portfolio-stats-grid">
+        <div class="stat-card">
+          <span>Estrellas Disponibles</span>
+          <strong id="stat-available-stars">5,000 ⭐</strong>
+        </div>
+        <div class="stat-card">
+          <span>Valor en Acciones</span>
+          <strong id="stat-portfolio-value">0 ⭐</strong>
+        </div>
+        <div class="stat-card">
+          <span>Balance Neto Total</span>
+          <strong id="stat-net-worth">5,000 ⭐</strong>
+        </div>
+      </div>
+
+      <div class="portfolio-table-container">
+        <table class="portfolio-table">
+          <thead>
+            <tr>
+              <th>Mercado / Opción</th>
+              <th>Posición</th>
+              <th>Acciones</th>
+              <th>Precio Compra</th>
+              <th>Precio Actual</th>
+              <th>Valor Total</th>
+              <th>Rendimiento</th>
+              <th>Acción</th>
+            </tr>
+          </thead>
+          <tbody id="portfolio-items-body">
+            <!-- Filas inyectadas dinámicamente -->
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal de Configuración (Reinicio) -->
+  <div id="settings-modal" class="modal-overlay hidden">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h2>Configuración de Cuenta</h2>
+        <button class="close-modal-btn" data-target="settings-modal">✕</button>
+      </div>
+      <p class="settings-desc">
+        Reiniciar restablecerá tu capital a <strong>5,000 ⭐</strong> y liquidará de inmediato todas tus participaciones y compras activas en todos los mercados.
+      </p>
+      <div class="settings-actions">
+        <button id="confirm-reset-btn" class="btn-danger">Reiniciar todo a 5,000 ⭐</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal de Orden de Compra (Trading) -->
+  <div id="trade-modal" class="modal-overlay hidden">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h2 id="trade-modal-title">Comprar Acción</h2>
+        <button class="close-modal-btn" data-target="trade-modal">✕</button>
+      </div>
+
+      <div class="trade-target-info">
+        <img id="trade-target-img" src="" alt="Cover">
+        <div>
+          <strong id="trade-target-name">Nombre</strong>
+          <span id="trade-target-market">Pregunta de mercado</span>
+        </div>
+      </div>
+
+      <div class="trade-details">
+        <div class="trade-type-badge" id="trade-type-badge">YES</div>
+        <div class="trade-price-display">
+          <span>Precio por acción:</span>
+          <strong id="trade-share-price">0 ⭐</strong>
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label for="trade-shares-input">Cantidad de acciones:</label>
+        <input type="number" id="trade-shares-input" min="1" max="1000" value="10">
+        
+        <div class="trade-summary-card">
+          <div class="summary-line">
+            <span>Costo Total:</span>
+            <strong id="trade-total-cost">0 ⭐</strong>
+          </div>
+          <div class="summary-line">
+            <span>Retorno Potencial (100⭐ c/u):</span>
+            <span id="trade-payout" style="color:var(--green-yes);">0 ⭐</span>
+          </div>
+        </div>
+
+        <button id="confirm-buy-btn" class="btn-primary">Confirmar Orden</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Panel Editor (Solo visible para tizianomferro@gmail.com) -->
+  <section id="editor-section" class="hidden panel">
+    <div class="editor-header">
+      <h2>Panel Administrador de Mercados</h2>
+    </div>
+
     <div class="spotify-integration">
       <button id="spotify-login-btn" class="btn-spotify">Conectar con Spotify API</button>
-
       <div id="spotify-controls" class="hidden">
         <div class="tabs">
           <button id="tab-recent-tracks" class="tab-btn active">Canciones Recientes</button>
           <button id="tab-search" class="tab-btn">Buscador General</button>
         </div>
-        <input type="text" id="spotify-search-input" class="hidden" placeholder="Buscar artista o canción sin sesgo...">
+        <input type="text" id="spotify-search-input" class="hidden" placeholder="Buscar artista o canción...">
         <div id="spotify-results-list" class="results-list"></div>
       </div>
     </div>
 
-    <!-- Constructor de Mercado Multi-Opción -->
     <div id="market-builder" class="form-group">
-      <input type="text" id="market-title" placeholder="Pregunta del mercado (ej. ¿Cuál será la canción más reproducida este mes?)">
-
-      <h3>Opciones seleccionadas</h3>
+      <input type="text" id="market-title" placeholder="Pregunta del mercado (ej. ¿Cuál será la canción más reproducida?)">
+      <h3>Opciones del mercado</h3>
       <div id="selected-options-list" class="selected-list">
-        <p class="empty-hint">Selecciona canciones o artistas de la lista superior para añadirlos a este mercado.</p>
+        <p class="empty-hint">Añade canciones o artistas desde el buscador superior.</p>
       </div>
 
-      <!-- Previsualización gráfica de la distribución -->
       <div class="distribution-preview">
         <div class="dist-header">
-          <span>Distribución de Probabilidad:</span>
+          <span>Distribución Inicial:</span>
           <span id="total-prob-indicator" class="prob-invalid">Total: 0% / 100%</span>
         </div>
         <div id="distribution-bar" class="multi-progress-bar"></div>
       </div>
 
-      <button id="confirm-publish-btn" class="btn-primary" disabled>Publicar Mercado (Debe sumar 100%)</button>
+      <button id="confirm-publish-btn" class="btn-primary" disabled>Publicar Mercado</button>
     </div>
   </section>
 
-  <!-- Tablero Público en Tiempo Real -->
+  <!-- Tablero Público de Mercados -->
   <main id="markets-grid" class="grid-container"></main>
 
   <script type="module" src="app.js"></script>
