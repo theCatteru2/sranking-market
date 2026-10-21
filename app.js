@@ -778,9 +778,39 @@ executeTradeBtn.addEventListener("click", async () => {
   const amount = parseInt(tradeAmountInput.value) || 0;
   if (amount <= 0 || amount > userData.stars) return;
 
-  const price = selectedOutcome === "YES" ? selectedOption.probability : (100 - selectedOption.probability);
-  const shares = Math.round(amount / (price / 100));
+  // 1. Inicializar fondo de liquidez virtual del mercado (L = 10,000 estrellas)
+  const L = 10000;
+  const currentProb = selectedOption.probability / 100;
+  
+  // Reservas del modelo CPMM: y * n = k
+  let y = L * (1 - currentProb); // Reserva de YES
+  let n = L * currentProb;       // Reserva de NO
 
+  let sharesReceived = 0;
+  let newProb = currentProb;
+
+  // 2. Ejecutar la curva de intercambio según el resultado elegido
+  if (selectedOutcome === "YES") {
+    const newN = n + amount;
+    const newY = (y * n) / newN;
+    sharesReceived = y - newY;
+    
+    // Nueva probabilidad resultante del pool
+    newProb = newN / (newY + newN);
+  } else {
+    const newY = y + amount;
+    const newN = (y * n) / newY;
+    sharesReceived = n - newN;
+    
+    // Al comprar NO, la probabilidad de YES cae
+    newProb = (y * n / newY) / (newY + (y * n / newY));
+  }
+
+  // Conversión a porcentaje entero [1% - 99%]
+  const targetProbPercent = Math.min(99, Math.max(1, Math.round(newProb * 100)));
+  const delta = targetProbPercent - selectedOption.probability;
+
+  // 3. Descontar saldo y registrar la posición
   userData.stars -= amount;
   userData.positions.push({
     marketId: currentMarketId,
@@ -789,32 +819,29 @@ executeTradeBtn.addEventListener("click", async () => {
     optionName: selectedOption.name,
     outcome: selectedOutcome,
     invested: amount,
-    shares: shares,
-    buyPrice: price
+    shares: Math.max(1, Math.round(sharesReceived)),
+    buyPrice: Math.round((amount / sharesReceived) * 100) // Precio promedio real pagado por acción
   });
 
-  const optIdx = currentMarket.options.findIndex(o => o.id === selectedOption.id);
-  // Cada 50 estrellas mueven 1 punto; compras menores a 25 estrellas no alteran la aguja
-  const impact = Math.min(10, Math.floor((amount + 25) / 50)); 
-  const delta = selectedOutcome === "YES" ? impact : -impact;
-
+  // 4. Si el volumen desplazó la cuota, rebalancear el mercado y registrar el punto
   if (delta !== 0) {
+    const optIdx = currentMarket.options.findIndex(o => o.id === selectedOption.id);
     applyProbabilityShift(currentMarket.options, optIdx, delta);
-  }
 
-  const newSnapshotValues = {};
-  currentMarket.options.forEach(o => {
-    newSnapshotValues[o.id] = o.probability;
-  });
+    const newSnapshotValues = {};
+    currentMarket.options.forEach(o => {
+      newSnapshotValues[o.id] = o.probability;
+    });
 
-  if (!currentMarket.history) currentMarket.history = [];
-  currentMarket.history.push({
-    timestamp: Date.now(),
-    values: newSnapshotValues
-  });
+    if (!currentMarket.history) currentMarket.history = [];
+    currentMarket.history.push({
+      timestamp: Date.now(),
+      values: newSnapshotValues
+    });
 
-  if (currentMarket.history.length > 300) {
-    currentMarket.history = currentMarket.history.slice(-300);
+    if (currentMarket.history.length > 300) {
+      currentMarket.history = currentMarket.history.slice(-300);
+    }
   }
 
   await setDoc(doc(db, "users", currentUser.uid), userData);
@@ -938,58 +965,63 @@ async function sellPosition(index) {
   if (!pos || !currentUser) return;
 
   const market = allMarkets.get(pos.marketId);
-  let spotPrice = pos.buyPrice || 50;
+  if (!market || market.resolved) return;
 
-  if (market) {
-    const opt = market.options.find(o => o.id === pos.optionId);
-    if (opt) {
-      spotPrice = pos.outcome === "YES" ? opt.probability : (100 - opt.probability);
-      
-      const optIdx = market.options.findIndex(o => o.id === pos.optionId);
-      
-      // Cálculo proporcional: cada 50 estrellas vendidas mueven 1 punto
-      const sellValue = Math.round(pos.shares * (spotPrice / 100) * 100);
-      const impact = Math.min(10, Math.floor((sellValue + 25) / 50));
-      const delta = pos.outcome === "YES" ? -impact : impact;
+  const opt = market.options.find(o => o.id === pos.optionId);
+  if (!opt) return;
 
-      if (delta !== 0) {
-        applyProbabilityShift(market.options, optIdx, delta);
+  // 1. Reconstruir estado actual del pool CPMM
+  const L = 10000;
+  const currentProb = opt.probability / 100;
+  let y = L * (1 - currentProb);
+  let n = L * currentProb;
 
-        // Solo registra nuevo punto en el gráfico si hubo cambio real
-        const newSnapshotValues = {};
-        market.options.forEach(o => newSnapshotValues[o.id] = o.probability);
-        if (!market.history) market.history = [];
-        market.history.push({ timestamp: Date.now(), values: newSnapshotValues });
+  let payout = 0;
+  let newProb = currentProb;
 
-        await updateDoc(doc(db, "markets", pos.marketId), {
-          options: market.options,
-          history: market.history
-        });
-      }
-    }
+  // 2. Liquidar acciones contra el pool (proceso inverso)
+  if (pos.outcome === "YES") {
+    // El usuario devuelve acciones YES al pool: y sube, n baja (se extraen estrellas)
+    const newY = y + pos.shares;
+    const newN = (y * n) / newY;
+    payout = n - newN;
+    newProb = newN / (newY + newN);
+  } else {
+    // El usuario devuelve acciones NO al pool: n sube, y baja
+    const newN = n + pos.shares;
+    const newY = (y * n) / newN;
+    payout = y - newY;
+    newProb = (newN) / (newY + newN);
   }
 
-  const payout = Math.round(pos.shares * (spotPrice / 100) * 100);
-  userData.stars += payout;
+  // Tasa de retiro estándar del 1.5%
+  const netPayout = Math.max(1, Math.round(payout * 0.985));
+  const targetProbPercent = Math.min(99, Math.max(1, Math.round(newProb * 100)));
+  const delta = targetProbPercent - opt.probability;
+
+  if (delta !== 0) {
+    const optIdx = market.options.findIndex(o => o.id === pos.optionId);
+    applyProbabilityShift(market.options, optIdx, delta);
+
+    const newSnapshotValues = {};
+    market.options.forEach(o => newSnapshotValues[o.id] = o.probability);
+    if (!market.history) market.history = [];
+    market.history.push({ timestamp: Date.now(), values: newSnapshotValues });
+
+    await updateDoc(doc(db, "markets", pos.marketId), {
+      options: market.options,
+      history: market.history
+    });
+  }
+
+  userData.stars += netPayout;
   userData.positions.splice(index, 1);
 
   await setDoc(doc(db, "users", currentUser.uid), userData);
   updateUI();
   renderPortfolio();
-  alert(`Has vendido tus acciones por ⭐ ${payout.toLocaleString()}`);
+  alert(`Has liquidado tu posición por ⭐ ${netPayout.toLocaleString()}`);
 }
-
-// Cierre unificado de modales
-document.querySelectorAll(".close-modal-btn").forEach(btn => {
-  btn.addEventListener("click", (e) => {
-    const target = e.currentTarget.getAttribute("data-target");
-    if (target) {
-      document.getElementById(target).classList.add("hidden");
-    } else {
-      btn.closest(".modal-overlay, .editor-modal-overlay").classList.add("hidden");
-    }
-  });
-});
 
 // ====================================================
 // 10. SPOTIFY Y MODO EDITOR
