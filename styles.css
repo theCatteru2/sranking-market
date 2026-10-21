@@ -24,6 +24,7 @@ body {
   background-color: var(--poly-bg); 
   color: var(--poly-text); 
   min-height: 100vh;
+  min-height: 100dvh;
   overflow-x: hidden;
 }
 
@@ -182,7 +183,7 @@ body {
 }
 
 /* ====================================================
-   VISTA 2: DETALLE DEL MERCADO (2 COLUMNAS / RESPONSIVE)
+   VISTA 2: DETALLE DEL MERCADO
    ==================================================== */
 .market-main-container {
   display: grid; 
@@ -193,7 +194,12 @@ body {
   padding: 0 16px;
 }
 
-.detail-nav-bar { margin-bottom: 6px; }
+.detail-nav-bar { 
+  display: flex; 
+  align-items: center; 
+  gap: 10px; 
+  margin-bottom: 6px; 
+}
 .btn-back {
   background: var(--poly-gray-btn); 
   border: 1px solid var(--poly-border);
@@ -203,6 +209,18 @@ body {
   font-size: 0.8rem; 
   font-weight: 600; 
   cursor: pointer;
+}
+
+.resolved-banner {
+  background: rgba(0, 192, 118, 0.15);
+  border: 1px solid var(--poly-green);
+  border-radius: 8px;
+  padding: 12px 16px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  color: var(--poly-green);
+  font-size: 0.9rem;
 }
 
 .market-left-column { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
@@ -340,21 +358,151 @@ body {
 .slip-disclaimer { font-size: 0.68rem; color: var(--poly-text-muted); text-align: center; }
 
 /* ====================================================
-   MODALES (EDITOR, PORTAFOLIO, CONFIG)
+   MODALES (ESTRUCTURA MÓVIL OPTIMIZADA)
    ==================================================== */
 .editor-modal-overlay, .modal-overlay {
-  position: fixed; inset: 0; background: rgba(0,0,0,0.85); z-index: 1000;
-  display: flex; justify-content: center; align-items: center; padding: 12px;
+  position: fixed; 
+  inset: 0; 
+  background: rgba(0,0,0,0.85); 
+  z-index: 2000;
+  display: flex; 
+  justify-content: center; 
+  align-items: center; 
+  padding: 16px;
 }
-.editor-modal-box, .modal-content {
-  background: var(--poly-card); border: 1px solid var(--poly-border); border-radius: 12px;
-  width: 100%; max-width: 620px; padding: 18px; max-height: 90vh; overflow-y: auto;
-}
-.modal-lg { max-width: 850px; }
-.modal-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; }
-.btn-icon { background: transparent; border: none; color: var(--poly-text-muted); font-size: 1.2rem; cursor: pointer; }
 
-.market-type-box { margin-bottom: 12px; border-bottom: 1px solid var(--poly-border); padding-bottom: 8px; }
+.editor-modal-box, .modal-content {
+  background: var(--poly-card); 
+  border: 1px solid var(--poly-border); 
+  border-radius: 12px;
+  width: 100%; 
+  max-width: 620px; 
+  max-height: 90vh;
+  max-height: 90dvh;
+  overflow-y: auto;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+}
+
+.modal-lg { max-width: 850px; }
+
+/* Cabecera Fija Sticky para evitar que la X se desborde */
+.modal-header { 
+  display: flex; 
+  justify-content: space-between; 
+  align-items: center; 
+  position: sticky;
+  top: 0;
+  background: var(--poly-card);
+  z-index: 10;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--poly-border);
+}
+
+.modal-header h2 {
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: #fff;
+}
+
+/* Botón de Cierre Táctil Seguro */
+.close-modal-btn {
+  width: 36px;
+  height: 36px;
+  min-width: 36px;
+  min-height: 36px;
+  background: var(--poly-gray-btn);
+  border: 1px solid var(--poly-border);
+  color: var(--poly-text-muted);
+  border-radius: 50%;
+  font-size: 1.1rem;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  flex-shrink: 0;
+  margin-left: 12px;
+  transition: all 0.15s ease;
+}
+.close-modal-btn:hover {
+  background: var(--poly-red);
+  color: #fff;
+  border-color: var(--poly-red);
+}
+
+.editor-modal-box > *:not(.modal-header),
+.modal-content > *:not(.modal-header) {
+  padding-left: 20px;
+  padding-right: 20px;
+}
+
+.editor-modal-box > *:last-child,
+.modal-content > *:last-child {
+  padding-bottom: 20px;
+}
+
+/* Lista de Resolución de Ganador */
+.resolve-list-container {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.resolve-item-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: #080b10;
+  border: 1px solid var(--poly-border);
+  border-radius: 8px;
+  padding: 10px 14px;
+}
+.resolve-item-row img {
+  width: 36px;
+  height: 36px;
+  border-radius: 6px;
+  object-fit: cover;
+}
+
+/* Portafolio y Tabla */
+.portfolio-stats-grid { 
+  display: grid; 
+  grid-template-columns: repeat(3, 1fr); 
+  gap: 10px; 
+  margin: 16px 0; 
+}
+.stat-card { background: #080b10; padding: 10px; border-radius: 8px; display: flex; flex-direction: column; border: 1px solid var(--poly-border); }
+.stat-card span { font-size: 0.72rem; color: var(--poly-text-muted); }
+.stat-card strong { font-size: 1rem; color: #fff; margin-top: 2px; }
+
+.portfolio-table-scroll {
+  width: 100%;
+  overflow-x: auto;
+  margin-bottom: 16px;
+}
+.portfolio-table { width: 100%; border-collapse: collapse; font-size: 0.8rem; }
+.portfolio-table th { padding: 10px 8px; border-bottom: 1px solid var(--poly-border); text-align: left; color: var(--poly-text-muted); }
+.portfolio-table td { padding: 10px 8px; border-bottom: 1px solid rgba(255,255,255,0.05); }
+
+.btn-sell {
+  background: rgba(244, 63, 94, 0.15);
+  border: 1px solid var(--poly-red);
+  color: #f87171;
+  padding: 5px 10px;
+  border-radius: 4px;
+  font-weight: 700;
+  font-size: 0.75rem;
+  cursor: pointer;
+}
+.btn-sell:hover {
+  background: var(--poly-red);
+  color: #fff;
+}
+
+.market-type-box { margin-top: 14px; margin-bottom: 12px; border-bottom: 1px solid var(--poly-border); padding-bottom: 10px; }
 .form-label { font-size: 0.75rem; font-weight: 700; color: var(--poly-text-muted); display: block; margin-bottom: 6px; }
 
 .template-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
@@ -406,18 +554,10 @@ input[type="text"] {
 .prob-valid { color: var(--poly-green); }
 .prob-invalid { color: var(--poly-red); }
 
-.portfolio-stats-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 12px; }
-.stat-card { background: #0c121c; padding: 8px; border-radius: 6px; display: flex; flex-direction: column; }
-.stat-card span { font-size: 0.7rem; color: var(--poly-text-muted); }
-.stat-card strong { font-size: 0.95rem; }
-
-.portfolio-table { width: 100%; border-collapse: collapse; font-size: 0.78rem; }
-.portfolio-table th { padding: 6px; border-bottom: 1px solid var(--poly-border); text-align: left; }
-.portfolio-table td { padding: 6px; border-bottom: 1px solid rgba(255,255,255,0.05); }
 .btn-danger { background: var(--poly-red); color: #fff; border: none; padding: 7px 12px; border-radius: 6px; cursor: pointer; font-size: 0.8rem; }
 
 /* ====================================================
-   MEDIA QUERIES (OPTIMIZACIÓN MÓVIL Y TABLET)
+   MEDIA QUERIES (OPTIMIZACIÓN MÓVIL EXACTA)
    ==================================================== */
 @media (max-width: 900px) {
   .market-main-container {
@@ -433,8 +573,6 @@ input[type="text"] {
 }
 
 @media (max-width: 600px) {
-  body { padding-bottom: 30px; }
-
   .poly-nav {
     flex-wrap: wrap;
     padding: 10px 12px;
@@ -461,7 +599,6 @@ input[type="text"] {
     padding: 8px 6px 8px 30px;
   }
 
-  /* Formato tarjeta para outcomes en pantallas pequeñas */
   .outcomes-table thead { display: none; }
   .outcomes-table tr {
     display: flex;
@@ -501,17 +638,29 @@ input[type="text"] {
     text-align: center;
   }
 
-  /* Modales en pantalla completa */
+  /* Modales en Pantalla Completa con Scroll Limpio */
   .editor-modal-overlay, .modal-overlay {
     padding: 0;
   }
+  
   .editor-modal-box, .modal-content {
     max-width: 100%;
     max-height: 100vh;
+    max-height: 100dvh;
     height: 100vh;
+    height: 100dvh;
     border-radius: 0;
     border: none;
-    padding: 16px;
+  }
+
+  .modal-header {
+    padding: 14px 16px;
+  }
+
+  .editor-modal-box > *:not(.modal-header),
+  .modal-content > *:not(.modal-header) {
+    padding-left: 16px;
+    padding-right: 16px;
   }
 
   .portfolio-stats-grid {
