@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Ranking Market Simulator</title>
-  <link rel="stylesheet" href="styles.css?v=4">
+  <link rel="stylesheet" href="styles.css?v=5">
 </head>
 <body>
   <!-- Navbar superior -->
@@ -42,9 +42,7 @@
       <span id="markets-count-badge" class="badge-count">0 mercados</span>
     </div>
     
-    <div id="markets-catalog-grid" class="catalog-grid">
-      <!-- Tarjetas de cada mercado inyectadas dinámicamente -->
-    </div>
+    <div id="markets-catalog-grid" class="catalog-grid"></div>
   </section>
 
   <!-- ==========================================
@@ -52,7 +50,6 @@
        ========================================== -->
   <main id="market-detail-view" class="market-main-container hidden">
     
-    <!-- COLUMNA IZQUIERDA (Gráfico + Outcomes) -->
     <section class="market-left-column">
       
       <div class="detail-nav-bar">
@@ -71,10 +68,8 @@
         </div>
       </div>
 
-      <!-- Leyenda superior del gráfico -->
       <div id="chart-legend-row" class="chart-legend-container"></div>
 
-      <!-- Barra de herramientas del gráfico -->
       <div class="chart-toolbar">
         <div class="chart-view-modes">
           <button id="view-mode-multi" class="tool-btn active">General</button>
@@ -85,7 +80,6 @@
         </div>
       </div>
 
-      <!-- Gráfico SVG Nativo con Tooltip -->
       <div class="chart-wrapper" id="chart-container">
         <svg id="polySvgChart" class="svg-chart" viewBox="0 0 800 240" preserveAspectRatio="none"></svg>
         <div id="chart-tooltip" class="chart-tooltip hidden">
@@ -94,7 +88,6 @@
         </div>
       </div>
 
-      <!-- Selector de temporalidad -->
       <div class="chart-timeframe-bar">
         <div class="time-buttons">
           <button class="time-btn" data-time="1D">1D</button>
@@ -104,7 +97,6 @@
         </div>
       </div>
 
-      <!-- Tabla de Outcomes -->
       <div class="outcomes-table-container">
         <table class="outcomes-table">
           <thead>
@@ -120,7 +112,7 @@
 
     </section>
 
-    <!-- COLUMNA DERECHA (Panel de Trading / Order Slip) -->
+    <!-- COLUMNA DERECHA (ORDER SLIP) -->
     <aside class="market-right-column">
       <div class="order-slip">
         
@@ -182,7 +174,9 @@
 
   </main>
 
-  <!-- Modal del Editor -->
+  <!-- ==========================================
+       MODAL DEL EDITOR (CON MODO BINARIO Y MÚLTIPLE)
+       ========================================== -->
   <section id="editor-section" class="hidden editor-modal-overlay">
     <div class="editor-modal-box">
       <div class="modal-header">
@@ -190,6 +184,16 @@
         <button id="close-editor-btn" class="btn-icon">✕</button>
       </div>
 
+      <!-- Selector de Tipo de Mercado -->
+      <div class="market-type-box">
+        <label class="form-label">Estructura del Mercado:</label>
+        <div class="tabs">
+          <button id="mode-multi-btn" class="tab-btn active" type="button">Competitivo (Múltiples opciones)</button>
+          <button id="mode-binary-btn" class="tab-btn" type="button">Binario Sí / No (1 Canción)</button>
+        </div>
+      </div>
+
+      <!-- Buscador e Historial Spotify -->
       <div class="spotify-integration">
         <button id="spotify-login-btn" class="btn-spotify">Conectar Spotify API</button>
         <div id="spotify-controls" class="hidden">
@@ -202,8 +206,9 @@
         </div>
       </div>
 
-      <div class="form-group">
-        <input type="text" id="market-title" placeholder="Pregunta del mercado...">
+      <!-- CONTENEDOR 1: MODO MÚLTIPLE (TOP 1 ENTRE VARIAS) -->
+      <div id="multi-builder-container" class="form-group">
+        <input type="text" id="market-title" placeholder="Pregunta (ej. ¿Cuál será la canción más escuchada?)">
         <h3>Opciones agregadas</h3>
         <div id="selected-options-list" class="selected-list">
           <p class="empty-hint">Añade opciones desde Spotify arriba.</p>
@@ -219,6 +224,39 @@
 
         <button id="confirm-publish-btn" class="btn-primary-blue" disabled>Publicar Mercado</button>
       </div>
+
+      <!-- CONTENEDOR 2: MODO BINARIO (SÍ / NO PARA 1 CANCIÓN) -->
+      <div id="binary-builder-container" class="form-group hidden">
+        <label class="form-label">Canción seleccionada:</label>
+        <div id="binary-track-selected" class="binary-selected-card">
+          <span class="empty-hint">Haz clic en "+ Añadir" en cualquier canción de arriba para elegirla.</span>
+        </div>
+
+        <label class="form-label">Plantillas rápidas de condición:</label>
+        <div class="template-chips">
+          <button type="button" class="template-chip" data-condition="¿Estará en el Top 5 este mes?">Top 5 este mes</button>
+          <button type="button" class="template-chip" data-condition="¿Estará en el Top 3 este mes?">Top 3 este mes</button>
+          <button type="button" class="template-chip" data-condition="¿Estará en el Top 10 este mes?">Top 10 este mes</button>
+          <button type="button" class="template-chip" data-condition="¿Superará 100k reproducciones este año?">100k reproducciones</button>
+        </div>
+
+        <input type="text" id="binary-market-title" placeholder="Pregunta del mercado (ej. ¿Estará [Canción] en el Top 5 este mes?)">
+
+        <div class="binary-prob-setting">
+          <div class="binary-prob-labels">
+            <span>Probabilidad de <strong>SÍ (Yes)</strong>:</span>
+            <strong id="binary-yes-display" style="color:var(--poly-green);">50%</strong>
+          </div>
+          <input type="range" id="binary-prob-slider" min="1" max="99" value="50">
+          <div class="binary-dist-bar">
+            <div id="binary-yes-fill" class="dist-yes" style="width: 50%;">Yes 50%</div>
+            <div id="binary-no-fill" class="dist-no" style="width: 50%;">No 50%</div>
+          </div>
+        </div>
+
+        <button id="confirm-publish-binary-btn" class="btn-primary-blue" disabled>Publicar Mercado Binario</button>
+      </div>
+
     </div>
   </section>
 
