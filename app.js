@@ -867,15 +867,19 @@ settingsBtn.addEventListener("click", () => {
   document.getElementById("settings-modal").classList.remove("hidden");
 });
 
-document.getElementById("confirm-reset-btn").addEventListener("click", async () => {
+// Función global de reseteo accesible desde el modal
+window.resetAccount = async function() {
   if (!currentUser) return;
   userData.stars = 5000;
   userData.positions = [];
   await setDoc(doc(db, "users", currentUser.uid), userData);
   updateUI();
+  renderPortfolio();
   document.getElementById("settings-modal").classList.add("hidden");
-  alert("Balance reiniciado a 5,000 ⭐");
-});
+  alert("Cuenta reiniciada con éxito a 5,000 ⭐ y posiciones eliminadas.");
+};
+
+document.getElementById("confirm-reset-btn").addEventListener("click", window.resetAccount);
 
 function renderPortfolio() {
   const tbody = document.getElementById("portfolio-items-body");
@@ -883,22 +887,22 @@ function renderPortfolio() {
   let totalEquity = 0;
 
   if (!userData.positions || userData.positions.length === 0) {
-    tbody.innerHTML = `<tr><td colspan="6" style="text-align:center; color:var(--poly-text-muted); padding:20px;">No posees acciones activas en este momento.</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="6" style="text-align:center; color:var(--poly-text-muted); padding:24px;">No posees acciones activas en este momento.</td></tr>`;
   } else {
     userData.positions.forEach((pos, idx) => {
-      // 1. Localizar mercado (por ID o por coincidencia de título en posiciones viejas)
-      let market = allMarkets.get(pos.marketId);
+      // 1. Buscar el mercado por ID o por coincidencia de título
+      let market = pos.marketId ? allMarkets.get(pos.marketId) : null;
       if (!market && pos.marketTitle) {
         for (const [mId, mData] of allMarkets.entries()) {
           if (mData.title === pos.marketTitle) {
             market = mData;
-            pos.marketId = mId; // Auto-reparar referencia
+            pos.marketId = mId;
             break;
           }
         }
       }
 
-      // 2. Determinar precio spot actual
+      // 2. Obtener probabilidad spot real [1% a 99%]
       let currentProbability = pos.buyPrice || 50;
       if (market && market.options) {
         const opt = market.options.find(o => o.id === pos.optionId || o.name === pos.optionName);
@@ -907,7 +911,7 @@ function renderPortfolio() {
         }
       }
 
-      // 3. Valuación Spot Correcta: Acciones * (Probabilidad / 100)
+      // 3. Valuación Spot Real: Cada acción vale (probabilidad / 100) estrellas
       const spotPricePerShare = currentProbability / 100;
       const totalVal = Math.round(pos.shares * spotPricePerShare);
       const initialVal = pos.invested || totalVal;
@@ -921,7 +925,7 @@ function renderPortfolio() {
       tr.innerHTML = `
         <td>
           <strong>${pos.optionName}</strong>
-          <span style="display:block; font-size:0.7rem; color:var(--poly-text-muted);">${pos.marketTitle || 'Mercado'}</span>
+          <span style="display:block; font-size:0.7rem; color:var(--poly-text-muted);">${market ? market.title : (pos.marketTitle || 'Mercado')}</span>
         </td>
         <td>
           <span style="color:${pos.outcome === 'YES' ? 'var(--poly-green)' : 'var(--poly-red)'}; font-weight:700;">
@@ -934,15 +938,11 @@ function renderPortfolio() {
           ${pnl >= 0 ? '+' : ''}${Number(pnl).toLocaleString()} ⭐ (${pnlPercent}%)
         </td>
         <td>
-          <button class="btn-sell" data-sell-idx="${idx}" ${isMarketResolved ? 'disabled style="opacity:0.4; cursor:not-allowed;"' : ''}>
+          <button class="btn-sell" onclick="window.sellPosition(${idx})" ${isMarketResolved ? 'disabled style="opacity:0.4; cursor:not-allowed;"' : ''}>
             ${isMarketResolved ? 'Finalizado' : 'Vender'}
           </button>
         </td>
       `;
-
-      if (!isMarketResolved) {
-        tr.querySelector(".btn-sell").addEventListener("click", () => sellPosition(idx));
-      }
 
       tbody.appendChild(tr);
     });
@@ -951,12 +951,13 @@ function renderPortfolio() {
   document.getElementById("stat-portfolio-value").textContent = `⭐ ${Number(totalEquity).toLocaleString()}`;
   document.getElementById("stat-net-worth").textContent = `⭐ ${Number(userData.stars + totalEquity).toLocaleString()}`;
 }
-async function sellPosition(index) {
+
+// Función global de venta: funciona tanto con mercados activos como con compras antiguas huérfanas
+window.sellPosition = async function(index) {
   const pos = userData.positions[index];
   if (!pos || !currentUser) return;
 
-  // Localizar mercado
-  let market = allMarkets.get(pos.marketId);
+  let market = pos.marketId ? allMarkets.get(pos.marketId) : null;
   let marketId = pos.marketId;
 
   if (!market && pos.marketTitle) {
@@ -975,29 +976,31 @@ async function sellPosition(index) {
   }
 
   let currentProb = opt ? (pos.outcome === "YES" ? opt.probability : (100 - opt.probability)) : (pos.buyPrice || 50);
-  
-  // Cálculo de liquidación con fee de salida del 1.5%
-  const grossPayout = pos.shares * (currentProb / 100);
-  const netPayout = Math.max(1, Math.round(grossPayout * 0.985));
+  let netPayout = 0;
 
-  // Si existe mercado activo y no está finalizado, aplicar impacto en liquidez
   if (market && !market.resolved && opt) {
+    // Liquidación mediante CPMM si el mercado existe y sigue abierto
     const L = 10000;
     const probDecimal = opt.probability / 100;
     let y = L * (1 - probDecimal);
     let n = L * probDecimal;
 
+    let payout = 0;
     let newProb = probDecimal;
+
     if (pos.outcome === "YES") {
       const newY = y + Math.min(pos.shares, L);
       const newN = (y * n) / newY;
+      payout = n - newN;
       newProb = newN / (newY + newN);
     } else {
       const newN = n + Math.min(pos.shares, L);
       const newY = (y * n) / newN;
-      newProb = (y * n / newY) / (newY + (y * n / newY));
+      payout = y - newY;
+      newProb = (newN) / (newY + newN);
     }
 
+    netPayout = Math.max(1, Math.round(payout * 0.985));
     const targetProbPercent = Math.min(99, Math.max(1, Math.round(newProb * 100)));
     const delta = targetProbPercent - opt.probability;
 
@@ -1015,17 +1018,21 @@ async function sellPosition(index) {
         history: market.history
       });
     }
+  } else {
+    // Fallback para compras viejas: liquidación lineal directa al precio spot
+    const gross = pos.shares * (currentProb / 100);
+    netPayout = Math.max(1, Math.round(gross * 0.985));
   }
 
-  // Acreditar estrellas y remover posición
+  // Acreditar el saldo al usuario y retirar la posición del arreglo
   userData.stars += netPayout;
   userData.positions.splice(index, 1);
 
   await setDoc(doc(db, "users", currentUser.uid), userData);
   updateUI();
   renderPortfolio();
-  alert(`Has vendido tu posición por ⭐ ${netPayout.toLocaleString()}`);
-}
+  alert(`Posición liquidada con éxito por ⭐ ${netPayout.toLocaleString()}`);
+};
 // ====================================================
 // 10. CIERRE GLOBAL E INFALIBLE DE MODALES
 // ====================================================
